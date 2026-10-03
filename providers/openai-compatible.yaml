@@ -1,0 +1,36 @@
+id: openai-compatible
+name: OpenAI Compatible (Groq / Together / Mistral / DeepSeek)
+description: Standard OpenAI-compatible API preset for fast direct routing
+preset: openai-compatible
+base_url: https://api.groq.com/openai/v1
+endpoint_paths:
+  chat: /chat/completions
+  embeddings: /embeddings
+  models: /models
+http_method: POST
+auth:
+  type: header
+  name: Authorization
+  template: Bearer {{key}}
+streaming:
+  type: sse
+error_classification:
+  - status_codes: [429]
+    body_patterns: [rate_limit, too many requests]
+    error_type: rate_limit
+  - status_codes: [401, 403]
+    body_patterns: [invalid_api_key, unauthorized, authentication_error]
+    error_type: auth_fail
+  - status_codes: [402]
+    body_patterns: [insufficient_quota, quota_exceeded, credit_exhausted]
+    error_type: quota_exhausted
+  - status_codes: [500, 502, 503, 504]
+    error_type: retryable
+rate_limit_headers:
+  retry_after: Retry-After
+  reset: x-ratelimit-reset-requests
+  remaining: x-ratelimit-remaining-requests
+model_name_map:
+  gpt-4o: llama-3.3-70b-versatile
+  gpt-4o-mini: llama-3.1-8b-instant
+  default: llama-3.3-70b-versatile

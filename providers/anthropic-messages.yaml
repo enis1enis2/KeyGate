@@ -1,0 +1,78 @@
+id: anthropic-messages
+name: Anthropic Messages API (Deliberately Non-Standard)
+description: Translates OpenAI chat completions format to and from Anthropic Messages API
+preset: custom
+base_url: https://api.anthropic.com
+endpoint_paths:
+  chat: /v1/messages
+http_method: POST
+auth:
+  type: header
+  name: x-api-key
+  template: "{{key}}"
+request_mapping:
+  engine: jsonata
+  template: |
+    {
+      "model": model,
+      "max_tokens": max_tokens ? max_tokens : 1024,
+      "temperature": temperature,
+      "system": ($sys := messages[role = "system"].content; $count($sys) > 0 ? $join($sys, "\n\n") : undefined),
+      "messages": messages[role != "system"] ~> $map(function($m) {
+        {
+          "role": $m.role = "assistant" ? "assistant" : "user",
+          "content": $m.content
+        }
+      }),
+      "stream": stream
+    }
+response_mapping:
+  engine: jsonata
+  template: |
+    {
+      "id": id,
+      "role": role,
+      "content": content[0].text,
+      "finish_reason": stop_reason = "end_turn" ? "stop" : stop_reason,
+      "usage": {
+        "prompt_tokens": usage.input_tokens,
+        "completion_tokens": usage.output_tokens,
+        "total_tokens": usage.input_tokens + usage.output_tokens
+      }
+    }
+streaming:
+  type: sse
+  chunk_mapping:
+    engine: jsonata
+    template: |
+      type = "content_block_delta" ? {
+        "id": "anthropic-chunk",
+        "delta": {
+          "role": "assistant",
+          "content": delta.text
+        }
+      } : type = "message_stop" ? {
+        "id": "anthropic-chunk",
+        "delta": {},
+        "finish_reason": "stop"
+      } : undefined
+error_classification:
+  - status_codes: [429]
+    body_patterns: [rate_limit_error]
+    error_type: rate_limit
+  - status_codes: [401]
+    body_patterns: [authentication_error]
+    error_type: auth_fail
+  - status_codes: [529, 500, 503]
+    body_patterns: [overloaded_error, api_error]
+    error_type: retryable
+  - status_codes: [400]
+    body_patterns: [invalid_request_error]
+    error_type: fatal
+rate_limit_headers:
+  retry_after: retry-after
+  reset: anthropic-ratelimit-requests-reset
+model_name_map:
+  claude-3-5-sonnet: claude-3-5-sonnet-20241022
+  claude-3-haiku: claude-3-5-haiku-20241022
+  gpt-4o: claude-3-5-sonnet-20241022

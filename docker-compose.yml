@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  keygate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: keygate
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      - KEYGATE_MASTER_KEY=${KEYGATE_MASTER_KEY:-change_this_to_a_secure_32_byte_secret_key!}
+      - KEYGATE_REQUIRE_AUTH=${KEYGATE_REQUIRE_AUTH:-true}
+      - KEYGATE_DB_PATH=/app/data/keygate.sqlite
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - METRICS_RETENTION_DAYS=${METRICS_RETENTION_DAYS:-30}
+    volumes:
+      - ./data:/app/data
+      - ./providers:/app/providers:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
