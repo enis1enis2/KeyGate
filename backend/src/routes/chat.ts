@@ -1,52 +1,51 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import { CONFIG } from '../config.js';
-import { GatewayKeyRepo } from '../db/index.js';
-import { hashToken } from '../crypto.js';
+import { authorizeGatewayKey, sendAuthError } from '../auth.js';
 import { SmartRouter } from '../engine/router.js';
 import { TemplateMapper } from '../engine/mapper.js';
+import { GatewayQuota } from '../engine/gateway-quota.js';
+import { computeCost } from '../engine/pricing.js';
+import { ApiKeyRepo, RequestLogRepo } from '../db/index.js';
+import { toErrorInfo, toOpenAIError } from '../errors.js';
 import type { OpenAIChatRequest } from '../types/index.js';
 
-// DECISION: Authenticate gateway tokens via SHA-256 hash lookup against database, allowing optional unauthenticated local mode when configured.
-export function authenticateGatewayKey(req: FastifyRequest): { authenticated: boolean; keyId?: string; error?: string } {
-  if (!CONFIG.requireAuth) {
-    return { authenticated: true };
-  }
+// DECISION: Clients send stream_options.include_usage so the final SSE chunk carries real token
+// counts. Without it the gateway could not meter streaming usage for TPM limits or daily budgets.
+function ensureUsageReporting(body: OpenAIChatRequest): void {
+  if (!body.stream) return;
+  const existing = body.stream_options as unknown;
+  if (existing && typeof existing === 'object') return;
+  body.stream_options = { include_usage: true };
+}
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { authenticated: false, error: 'Missing or malformed Authorization header. Expected: Bearer <keygate_token>' };
-  }
+interface StreamUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+}
 
-  const rawToken = authHeader.slice(7).trim();
-  const tokenHash = hashToken(rawToken);
-  const keyRecord = GatewayKeyRepo.getByHash(tokenHash);
-
-  if (!keyRecord) {
-    return { authenticated: false, error: 'Invalid or revoked Gateway API key.' };
-  }
-
-  if (keyRecord.expires_at && Date.now() > keyRecord.expires_at) {
-    return { authenticated: false, error: 'Gateway API key has expired.' };
-  }
-
-  return { authenticated: true, keyId: keyRecord.id };
+function readStreamUsage(chunk: unknown): StreamUsage | null {
+  if (!chunk || typeof chunk !== 'object' || !('usage' in chunk)) return null;
+  const usage = (chunk as { usage?: unknown }).usage;
+  if (!usage || typeof usage !== 'object') return null;
+  return usage as StreamUsage;
 }
 
 export const chatRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.post('/v1/chat/completions', async (request: FastifyRequest, reply: FastifyReply) => {
-    const auth = authenticateGatewayKey(request);
+  // DECISION: Chat completions are the hottest path, so they carry their own stricter rate limit.
+  fastify.post('/v1/chat/completions', {
+    config: { rateLimit: { max: CONFIG.rateLimit.v1Max } },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as OpenAIChatRequest | undefined;
+
+    // Authenticate, enforce pool scope and reserve a gateway rate-limit slot in one pass.
+    const auth = authorizeGatewayKey(request, {
+      alias: typeof body?.model === 'string' ? body.model : undefined,
+    });
     if (!auth.authenticated) {
-      return reply.status(401).send({
-        error: {
-          message: auth.error || 'Unauthorized',
-          type: 'invalid_request_error',
-          code: 'invalid_api_key',
-        },
-      });
+      return sendAuthError(reply, auth);
     }
 
-    const body = request.body as OpenAIChatRequest;
     if (!body || !body.model || !body.messages) {
       return reply.status(400).send({
         error: {
@@ -57,6 +56,8 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    ensureUsageReporting(body);
+
     const traceId = (request.headers['x-trace-id'] as string) || crypto.randomUUID();
     const router = SmartRouter.getInstance();
 
@@ -65,11 +66,13 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
         body.model,
         body,
         traceId,
-        auth.keyId
+        auth.keyId,
+        'chat'
       );
 
-      // Handle non-streaming response
+      // Handle non-streaming response (usage and cost were already logged by the router)
       if (!body.stream) {
+        GatewayQuota.addTokens(auth.keyId || '', result.promptTokens + result.completionTokens);
         return reply
           .header('x-trace-id', traceId)
           .header('x-keygate-provider', result.providerId)
@@ -91,6 +94,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
         const reader = result.streamResponse.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let streamUsage: StreamUsage | null = null;
 
         try {
           while (true) {
@@ -114,6 +118,8 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
                 const dataContent = trimmed.slice(6).trim();
                 try {
                   const parsed = JSON.parse(dataContent);
+                  const usage = readStreamUsage(parsed);
+                  if (usage) streamUsage = usage;
                   const mappedChunk = await TemplateMapper.mapChunk(result.spec, parsed, body.model);
                   if (mappedChunk) {
                     reply.raw.write(`data: ${JSON.stringify(mappedChunk)}\n\n`);
@@ -126,6 +132,8 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
                 // NDJSON or raw text chunk
                 try {
                   const parsed = JSON.parse(trimmed);
+                  const usage = readStreamUsage(parsed);
+                  if (usage) streamUsage = usage;
                   const mappedChunk = await TemplateMapper.mapChunk(result.spec, parsed, body.model);
                   if (mappedChunk) {
                     reply.raw.write(`data: ${JSON.stringify(mappedChunk)}\n\n`);
@@ -144,22 +152,26 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
           reply.raw.end();
         }
 
+        // Backfill real usage once the upstream stream is fully drained.
+        if (streamUsage) {
+          const promptTokens = streamUsage.prompt_tokens || 0;
+          const completionTokens = streamUsage.completion_tokens || 0;
+          const cost = computeCost(result.providerId, result.model, promptTokens, completionTokens);
+          RequestLogRepo.finalizeUsage(traceId, promptTokens, completionTokens, cost);
+          ApiKeyRepo.addDailyUsage(result.keyId, cost);
+          GatewayQuota.addTokens(auth.keyId || '', promptTokens + completionTokens);
+        }
+
         return reply;
       }
 
       return reply.status(500).send({
         error: { message: 'Failed to establish upstream streaming response.', type: 'api_error' },
       });
-    } catch (err: any) {
-      const statusCode = err.statusCode || (err.classified?.statusCode) || 500;
-      const message = err.classified?.message || err.message || 'Internal gateway error';
-      return reply.status(statusCode).send({
-        error: {
-          message,
-          type: err.classified?.errorType || 'api_error',
-          code: err.classified?.errorType || 'internal_error',
-        },
-      });
+    } catch (err) {
+      const info = toErrorInfo(err);
+      const statusCode = info.statusCode || info.classified?.statusCode || 500;
+      return reply.status(statusCode).send(toOpenAIError(info));
     }
   });
 };

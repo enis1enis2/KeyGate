@@ -1,7 +1,22 @@
 import type { FastifyPluginAsync } from 'fastify';
 import crypto from 'crypto';
 import { ModelAliasRepo } from '../db/index.js';
-import type { TargetConfig, RoutingStrategy } from '../types/index.js';
+import type { TargetConfig, RoutingStrategy, EndpointKind } from '../types/index.js';
+
+const ENDPOINT_KINDS: readonly EndpointKind[] = [
+  'chat',
+  'responses',
+  'completions',
+  'embeddings',
+  'images',
+  'audio',
+  'moderations',
+  'batches',
+];
+
+function toEndpointKind(value: unknown): EndpointKind {
+  return ENDPOINT_KINDS.includes(value as EndpointKind) ? (value as EndpointKind) : 'chat';
+}
 
 export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
   // List all aliases
@@ -11,7 +26,9 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
       let targets: TargetConfig[] = [];
       try {
         targets = JSON.parse(a.targets_json);
-      } catch {}
+      } catch {
+        // Malformed persisted JSON: fall back to an empty target list.
+      }
       return {
         ...a,
         targets,
@@ -27,6 +44,10 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
       alias_name: string;
       strategy?: RoutingStrategy;
       targets: TargetConfig[];
+      description?: string | null;
+      endpoint_kind?: string;
+      daily_token_cap?: number;
+      daily_spend_cap?: number;
       hedging_enabled?: boolean;
       hedged_delay_ms?: number;
       timeout_ms?: number;
@@ -43,6 +64,10 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
       alias_name: body.alias_name.trim(),
       strategy: body.strategy || 'weighted-by-health',
       targets_json: JSON.stringify(body.targets),
+      description: body.description ? String(body.description).slice(0, 500) : null,
+      endpoint_kind: toEndpointKind(body.endpoint_kind),
+      daily_token_cap: Math.max(0, Number(body.daily_token_cap) || 0),
+      daily_spend_cap: Math.max(0, Number(body.daily_spend_cap) || 0),
       hedging_enabled: body.hedging_enabled || false,
       hedged_delay_ms: body.hedged_delay_ms || 500,
       timeout_ms: body.timeout_ms || 30000,

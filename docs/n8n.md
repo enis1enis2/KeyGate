@@ -25,14 +25,14 @@ KeyGate exposes a 100% OpenAI-compatible API (`/v1`) that allows n8n to connect 
 ### Step 3: Use the OpenAI Chat Model Node
 1. Add an **OpenAI Chat Model** node to your n8n canvas (e.g., connected to an **AI Agent** or **Chain**).
 2. Select the credential created in Step 2.
-3. In the **Model** field, enter any model alias configured in KeyGate (e.g., `gpt-4o` or `default`).
+3. In the **Model** field, enter any AI pool configured in KeyGate (e.g., `gpt-4o` or `default`).
 4. Execute the node. KeyGate will dynamically select the healthiest upstream API key, track latency, and transparently handle rate limits.
 
 ---
 
 ## 2. Using the Generic Passthrough Endpoint (HTTP Request Node)
 
-For non-chat endpoints (e.g., image generation, audio transcription, or custom provider-specific endpoints), KeyGate provides a zero-configuration passthrough router:
+Chat, responses, embeddings, images, audio, files and batches are natively available under `/v1/*` and go through pool routing, failover and metering. For provider-specific endpoints that KeyGate does not expose natively, KeyGate also provides a zero-configuration passthrough router:
 
 ```
 ANY /v1/passthrough/{provider}/*

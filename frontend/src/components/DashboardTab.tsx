@@ -2,25 +2,33 @@ import React from 'react';
 import { 
   Activity, 
   CheckCircle2, 
-  AlertTriangle, 
   Clock, 
   RefreshCw, 
   Zap, 
   ShieldAlert,
   RotateCcw,
-  Power
+  Power,
+  Wallet,
+  DollarSign
 } from 'lucide-react';
-import type { DashboardStats, ApiKeyItem } from '../types';
+import type { DashboardStats, ApiKeyItem, ModelAlias } from '../types';
 import { updateKey } from '../api';
 
 interface DashboardTabProps {
   stats: DashboardStats | null;
   keys: ApiKeyItem[];
+  aliases: ModelAlias[];
   onRefresh: () => void;
 }
 
-export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, onRefresh }) => {
+export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, aliases, onRefresh }) => {
   const [resettingId, setResettingId] = React.useState<string | null>(null);
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleResetCircuit = async (keyId: string) => {
     setResettingId(keyId);
@@ -38,8 +46,8 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, onRefre
   };
 
   const formatCooldown = (cooldownUntil: number) => {
-    if (!cooldownUntil || cooldownUntil <= Date.now()) return null;
-    const remainingSec = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    if (!cooldownUntil || cooldownUntil <= now) return null;
+    const remainingSec = Math.ceil((cooldownUntil - now) / 1000);
     if (remainingSec > 3600) {
       return `${Math.round(remainingSec / 3600)}h remaining`;
     }
@@ -68,7 +76,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, onRefre
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Requests */}
+
         <div className="bg-slate-900/60 p-5 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">24h Requests</span>
@@ -144,6 +152,114 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, onRefre
           <div className="mt-2 text-xs text-slate-400 font-mono">
             Auto-recovering via exponential backoff
           </div>
+        </div>
+
+        {/* Spend Today */}
+        <div className="bg-slate-900/60 p-5 rounded-xl border border-slate-800/80">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Spend (Today UTC)</span>
+            <DollarSign className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white font-mono">
+              ${(stats?.spendToday ?? 0).toFixed(4)}
+            </span>
+            <span className="text-xs text-slate-400 font-mono">USD</span>
+          </div>
+          <div className="mt-2 text-xs text-slate-400 font-mono">
+            Metered from model_pricing · resets at UTC midnight
+          </div>
+        </div>
+      </div>
+
+      {/* Pool & Budget Usage */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-slate-900/60 rounded-xl border border-slate-800/80 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-800 flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-indigo-400" />
+            <h2 className="text-base font-semibold text-white">AI Pool Usage Today</h2>
+          </div>
+          {(stats?.poolUsageToday ?? []).length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-sm">
+              No pool traffic yet today.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs font-mono">
+                <thead>
+                  <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Pool</th>
+                    <th className="py-3 px-4 text-right">Requests</th>
+                    <th className="py-3 px-4 text-right">Tokens</th>
+                    <th className="py-3 px-4 text-right">Spend / Cap</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {(stats?.poolUsageToday ?? []).map((u) => {
+                    const alias = aliases.find((a) => a.alias_name === u.pool);
+                    const spendCap = alias?.daily_spend_cap ?? 0;
+                    const tokenCap = alias?.daily_token_cap ?? 0;
+                    return (
+                      <tr key={u.pool} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3 px-4 text-white font-semibold font-sans">{u.pool}</td>
+                        <td className="py-3 px-4 text-right text-slate-300">{u.requests}</td>
+                        <td className="py-3 px-4 text-right text-slate-300">
+                          {u.tokens.toLocaleString()}
+                          {tokenCap > 0 && (
+                            <span className={`ml-1 ${u.tokens >= tokenCap ? 'text-rose-400' : 'text-slate-500'}`}>
+                              / {tokenCap.toLocaleString()}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <span className={spendCap > 0 && u.spend >= spendCap ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                            ${u.spend.toFixed(4)}
+                          </span>
+                          {spendCap > 0 && <span className="text-slate-500"> / ${spendCap}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-slate-900/60 rounded-xl border border-slate-800/80 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-800 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-amber-400" />
+            <h2 className="text-base font-semibold text-white">Gateway Keys Over Daily Budget</h2>
+          </div>
+          {(stats?.budgetedKeys ?? []).length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-sm">
+              No gateway key has exceeded its daily spend budget. 
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs font-mono">
+                <thead>
+                  <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Key</th>
+                    <th className="py-3 px-4 text-right">Spend Today</th>
+                    <th className="py-3 px-4 text-right">Budget Cap</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {(stats?.budgetedKeys ?? []).map((b) => (
+                    <tr key={b.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-3 px-4 font-sans">
+                        <div className="text-white font-semibold">{b.name}</div>
+                        <div className="text-[10px] text-slate-500">{b.provider}</div>
+                      </td>
+                      <td className="py-3 px-4 text-right text-rose-400 font-bold">${b.spend_today.toFixed(4)}</td>
+                      <td className="py-3 px-4 text-right text-slate-300">${b.daily_budget_cap.toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,11 +1,25 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { ModelAliasRepo, ProviderRepo } from '../db/index.js';
+import { authorizeGatewayKey, isAliasAllowed, sendAuthError } from '../auth.js';
+import { CONFIG } from '../config.js';
 import yaml from 'yaml';
-import type { ProviderSpec } from '../types/index.js';
+import type { ProviderSpec, GatewayKeyRecord } from '../types/index.js';
 
 export const modelsRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/v1/models', async (request, reply) => {
-    const aliases = ModelAliasRepo.getAll().filter((a) => a.is_active);
+  // DECISION: The model list is scoped per gateway key, so a key restricted to certain pools
+  // never even learns that other pools exist.
+  fastify.get('/v1/models', {
+    config: { rateLimit: { max: CONFIG.rateLimit.v1Max } },
+  }, async (request, reply) => {
+    const auth = authorizeGatewayKey(request);
+    if (!auth.authenticated) {
+      return sendAuthError(reply, auth);
+    }
+
+    const key: GatewayKeyRecord | undefined = auth.key;
+    const visible = (name: string): boolean => (key ? isAliasAllowed(key, name) : true);
+
+    const aliases = ModelAliasRepo.getAll().filter((a) => a.is_active && visible(a.alias_name));
     const providers = ProviderRepo.getAll().filter((p) => p.is_active);
 
     const modelSet = new Set<string>();
@@ -21,7 +35,7 @@ export const modelsRoutes: FastifyPluginAsync = async (fastify) => {
         const spec = yaml.parse(p.spec_yaml) as ProviderSpec;
         if (spec.model_name_map) {
           for (const key of Object.keys(spec.model_name_map)) {
-            modelSet.add(key);
+            if (visible(key)) modelSet.add(key);
           }
         }
       } catch {

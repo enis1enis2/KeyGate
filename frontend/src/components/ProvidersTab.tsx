@@ -1,18 +1,13 @@
 import React, { useState } from 'react';
 import { 
-  Server, 
   Wand2, 
   Play, 
   Trash2, 
   Check, 
-  Copy, 
-  AlertCircle, 
-  CheckCircle,
-  FileCode,
-  ArrowRight
+  FileCode
 } from 'lucide-react';
-import type { Provider } from '../types';
-import { saveProvider, deleteProvider, draftSpecFromCurl, testProviderSpec } from '../api';
+import type { Provider, ProviderTestResult } from '../types';
+import { saveProvider, deleteProvider, draftSpecFromCurl, testProviderSpec, errorMessage } from '../api';
 
 interface ProvidersTabProps {
   providers: Provider[];
@@ -29,15 +24,13 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
   const [showWizard, setShowWizard] = useState(false);
   const [curlCommand, setCurlCommand] = useState('');
   const [sampleResponse, setSampleResponse] = useState('');
-  const [wizardWarning, setWizardWarning] = useState<string[]>([]);
-  const [detectedKey, setDetectedKey] = useState<string | null>(null);
 
   // Live Test state
   const [testKey, setTestKey] = useState('');
   const [testModel, setTestModel] = useState('');
   const [testPrompt, setTestPrompt] = useState('Write a 1-sentence haiku about speed.');
   const [isRunningTest, setIsRunningTest] = useState(false);
-  const [testResult, setTestResult] = useState<any | null>(null);
+  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
 
   const handleSelect = (p: Provider) => {
     setSelectedProvider(p);
@@ -54,8 +47,8 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
       setSaveStatus('Spec saved successfully!');
       onRefresh();
       setTimeout(() => setSaveStatus(null), 3000);
-    } catch (err: any) {
-      setSaveStatus(`Error: ${err.message}`);
+    } catch (err) {
+      setSaveStatus(`Error: ${errorMessage(err)}`);
     } finally {
       setIsSaving(false);
     }
@@ -76,15 +69,17 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
     try {
       const res = await draftSpecFromCurl(curlCommand, sampleResponse);
       setSpecYaml(res.specYaml);
-      setWizardWarning(res.warnings || []);
       if (res.detectedKey) {
-        setDetectedKey(res.detectedKey);
         setTestKey(res.detectedKey);
       }
       setShowWizard(false);
-      setSaveStatus('Drafted spec from cURL! You can test or save it below.');
-    } catch (err: any) {
-      alert(`Wizard error: ${err.message}`);
+      setSaveStatus(
+        res.warnings?.length
+          ? `Drafted spec from cURL with ${res.warnings.length} warning(s) — review it below.`
+          : 'Drafted spec from cURL! You can test or save it below.'
+      );
+    } catch (err) {
+      alert(`Wizard error: ${errorMessage(err)}`);
     }
   };
 
@@ -98,8 +93,8 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
     try {
       const res = await testProviderSpec(specYaml, testKey, testPrompt, testModel || undefined);
       setTestResult(res);
-    } catch (err: any) {
-      setTestResult({ success: false, error: err.message });
+    } catch (err) {
+      setTestResult({ success: false, error: errorMessage(err) });
     } finally {
       setIsRunningTest(false);
     }
@@ -363,16 +358,16 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
                     </div>
                   )}
 
-                  {testResult.rawResponse && (
+                  {testResult.rawResponse != null && (
                     <div>
                       <span className="text-[11px] text-slate-500 uppercase block mb-1">2. Raw Upstream Response:</span>
                       <pre className="bg-slate-900 p-2.5 rounded text-slate-300 text-[11px] overflow-x-auto max-h-40">
-                        {typeof testResult.rawResponse === 'object' ? JSON.stringify(testResult.rawResponse, null, 2) : testResult.rawResponse}
+                        {typeof testResult.rawResponse === 'object' ? JSON.stringify(testResult.rawResponse, null, 2) : String(testResult.rawResponse)}
                       </pre>
                     </div>
                   )}
 
-                  {testResult.mappedResponse && (
+                  {testResult.mappedResponse != null && (
                     <div>
                       <span className="text-[11px] text-slate-500 uppercase block mb-1 text-emerald-400 font-bold">
                         3. Mapped OpenAI Chat Completion Output:

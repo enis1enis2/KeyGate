@@ -8,7 +8,7 @@ async function main() {
   getDb();
 
   console.log('[KeyGate] Checking and seeding initial providers & aliases...');
-  const seedResult = seedInitialData();
+  seedInitialData();
 
   const server = await buildServer();
   const retentionTimer = startRetentionCron();
@@ -17,7 +17,9 @@ async function main() {
   try {
     const { RequestLogRepo } = await import('./db/index.js');
     RequestLogRepo.purgeOldLogs(CONFIG.metricsRetentionDays);
-  } catch {}
+  } catch {
+    // Retention prune is best-effort on boot; failures are logged by the cron run.
+  }
 
   const port = CONFIG.port;
   const host = CONFIG.host;

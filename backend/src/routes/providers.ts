@@ -3,7 +3,8 @@ import yaml from 'yaml';
 import { ProviderRepo } from '../db/index.js';
 import { parseCurlAndDraftSpec } from '../engine/curl-parser.js';
 import { TemplateMapper } from '../engine/mapper.js';
-import type { ProviderSpec, OpenAIChatRequest } from '../types/index.js';
+import type { ProviderSpec, OpenAIChatRequest, OpenAIChatResponse } from '../types/index.js';
+import { errorMessage } from '../errors.js';
 
 export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   // List all providers
@@ -40,8 +41,8 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       if (!parsedSpec.id || !parsedSpec.name || !parsedSpec.base_url) {
         return reply.status(400).send({ error: 'Provider spec must contain id, name, and base_url.' });
       }
-    } catch (err: any) {
-      return reply.status(400).send({ error: `Invalid YAML: ${err.message}` });
+    } catch (err) {
+      return reply.status(400).send({ error: `Invalid YAML: ${errorMessage(err)}` });
     }
 
     ProviderRepo.create({
@@ -72,8 +73,8 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const draft = parseCurlAndDraftSpec(body.curl_command, body.sample_response);
       return reply.send(draft);
-    } catch (err: any) {
-      return reply.status(400).send({ error: err.message });
+    } catch (err) {
+      return reply.status(400).send({ error: errorMessage(err) });
     }
   });
 
@@ -93,8 +94,8 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
     let spec: ProviderSpec;
     try {
       spec = yaml.parse(body.spec_yaml) as ProviderSpec;
-    } catch (err: any) {
-      return reply.status(400).send({ error: `Invalid YAML: ${err.message}` });
+    } catch (err) {
+      return reply.status(400).send({ error: `Invalid YAML: ${errorMessage(err)}` });
     }
 
     const testReq: OpenAIChatRequest = {
@@ -117,21 +118,21 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       const latencyMs = Date.now() - startTime;
 
       const rawText = await res.text();
-      let rawJson: any = null;
+      let rawJson: unknown = null;
       try {
         rawJson = JSON.parse(rawText);
       } catch {
         rawJson = rawText;
       }
 
-      let mappedResponse: any = null;
+      let mappedResponse: OpenAIChatResponse | null = null;
       let mappingError: string | null = null;
 
       if (res.ok) {
         try {
           mappedResponse = await TemplateMapper.mapResponse(spec, rawJson, testReq.model);
-        } catch (mErr: any) {
-          mappingError = mErr.message;
+        } catch (mErr) {
+          mappingError = errorMessage(mErr);
         }
       }
 
@@ -149,10 +150,10 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
         mappedResponse,
         mappingError,
       });
-    } catch (err: any) {
+    } catch (err) {
       return reply.status(500).send({
         success: false,
-        error: err.message,
+        error: errorMessage(err),
       });
     }
   });

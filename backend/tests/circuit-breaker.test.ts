@@ -13,7 +13,6 @@ describe('CircuitBreakerManager', () => {
     ProviderRepo.create({
       id: testProviderId,
       name: 'CB Test Provider',
-      base_url: 'https://example.com',
       spec_yaml: 'id: cb-test-provider\nname: CB Test Provider\nbase_url: https://example.com',
     });
 

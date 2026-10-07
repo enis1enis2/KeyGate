@@ -1,15 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  FileText, 
-  Search, 
-  Filter, 
   RefreshCw, 
   CheckCircle2, 
   AlertTriangle, 
   Eye, 
   Radio
 } from 'lucide-react';
-import type { RequestLog, Provider } from '../types';
+import type { RequestLog, Provider, EndpointKind } from '../types';
+import { ENDPOINT_KINDS } from '../types';
 import { fetchLogs } from '../api';
 
 interface LogsTabProps {
@@ -21,39 +19,44 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
   const [statusFilter, setStatusFilter] = useState('');
   const [providerFilter, setProviderFilter] = useState('');
   const [modelFilter, setModelFilter] = useState('');
+  const [endpointFilter, setEndpointFilter] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedLog, setSelectedLog] = useState<RequestLog | null>(null);
 
-  const loadLogs = async () => {
-    setIsLoading(true);
-    try {
-      const data = await fetchLogs({
-        status: statusFilter || undefined,
-        provider_id: providerFilter || undefined,
-        model: modelFilter || undefined,
-        limit: 100,
+  const fetchLogsPage = useCallback(() => {
+    return fetchLogs({
+      status: statusFilter || undefined,
+      provider_id: providerFilter || undefined,
+      model: modelFilter || undefined,
+      endpoint: endpointFilter || undefined,
+      limit: 100,
+    })
+      .then((data) => {
+        setLogs(data);
+      })
+      .catch((err) => {
+        console.error('Failed to load logs:', err);
       });
-      setLogs(data);
-    } catch (err) {
-      console.error('Failed to load logs:', err);
-    } finally {
-      setIsLoading(false);
-    }
+  }, [statusFilter, providerFilter, modelFilter, endpointFilter]);
+
+  const handleRefresh = () => {
+    setIsLoading(true);
+    void fetchLogsPage().finally(() => setIsLoading(false));
   };
 
   useEffect(() => {
-    loadLogs();
-  }, [statusFilter, providerFilter, modelFilter]);
+    void fetchLogsPage();
+  }, [fetchLogsPage]);
 
   // Auto-refresh interval
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
-      loadLogs();
+      void fetchLogsPage();
     }, 4000);
     return () => clearInterval(interval);
-  }, [autoRefresh, statusFilter, providerFilter, modelFilter]);
+  }, [autoRefresh, fetchLogsPage]);
 
   return (
     <div className="space-y-6">
@@ -77,7 +80,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
             {autoRefresh ? 'Live Streaming' : 'Paused'}
           </button>
           <button
-            onClick={loadLogs}
+            onClick={handleRefresh}
             disabled={isLoading}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition-colors"
           >
@@ -116,6 +119,20 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
           </select>
         </div>
 
+        <div className="flex-1 min-w-[140px]">
+          <label className="block text-[10px] text-slate-500 uppercase mb-1">Endpoint:</label>
+          <select
+            value={endpointFilter}
+            onChange={(e) => setEndpointFilter(e.target.value)}
+            className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
+          >
+            <option value="">All Endpoints</option>
+            {ENDPOINT_KINDS.map((k: EndpointKind) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex-1 min-w-[160px]">
           <label className="block text-[10px] text-slate-500 uppercase mb-1">Model Search:</label>
           <input
@@ -140,11 +157,13 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
               <thead>
                 <tr className="bg-slate-950/60 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
                   <th className="py-3 px-4">Time</th>
+                  <th className="py-3 px-4">Endpoint</th>
                   <th className="py-3 px-4">Alias / Model</th>
                   <th className="py-3 px-4">Provider</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Latency</th>
                   <th className="py-3 px-4">Tokens</th>
+                  <th className="py-3 px-4 text-right">Cost</th>
                   <th className="py-3 px-4">Details</th>
                 </tr>
               </thead>
@@ -153,6 +172,11 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
                   <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
                       {new Date(log.created_at).toLocaleTimeString()}
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 text-[10px] uppercase tracking-wider">
+                        {log.endpoint || 'chat'}
+                      </span>
                     </td>
                     <td className="py-3 px-4 font-semibold text-white whitespace-nowrap">
                       <div>{log.alias_name || log.model}</div>
@@ -184,6 +208,13 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
                         <span>{log.prompt_tokens} &rarr; {log.completion_tokens}</span>
                       ) : (
                         <span>—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      {log.cost > 0 ? (
+                        <span className="text-emerald-400">${log.cost.toFixed(6)}</span>
+                      ) : (
+                        <span className="text-slate-600">—</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
@@ -222,10 +253,13 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-slate-300">
+              <div>Endpoint: <span className="text-cyan-400">{selectedLog.endpoint || 'chat'}</span></div>
               <div>Provider: <span className="text-white">{selectedLog.provider_id}</span></div>
               <div>Model: <span className="text-white">{selectedLog.model}</span></div>
+              <div>Pool: <span className="text-indigo-400">{selectedLog.pool_name || selectedLog.alias_name || '—'}</span></div>
               <div>Status: <span className={selectedLog.status === 'success' ? 'text-emerald-400' : 'text-rose-400'}>{selectedLog.status_code} ({selectedLog.status})</span></div>
               <div>Latency: <span className="text-cyan-400">{selectedLog.latency_ms}ms</span></div>
+              <div>Cost: <span className="text-emerald-400">{selectedLog.cost > 0 ? `$${selectedLog.cost.toFixed(6)}` : '—'}</span></div>
               <div>Is Stream: <span className="text-white">{selectedLog.is_stream ? 'Yes' : 'No'}</span></div>
               <div>Is Hedged: <span className="text-white">{selectedLog.is_hedged ? 'Yes' : 'No'}</span></div>
             </div>

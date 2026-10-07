@@ -57,7 +57,8 @@ describe('TemplateMapper', () => {
       {},
       { prompt: 'hi' }
     );
-    expect(resBody.bodyObj.token).toBe('token-secret-789');
+    const appliedBody = resBody.bodyObj as { token?: string };
+    expect(appliedBody.token).toBe('token-secret-789');
   });
 
   it('degrades tools gracefully by appending schema to system prompt', () => {

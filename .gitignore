@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+backend/public/
+*.tsbuildinfo
+
+# Runtime data (SQLite database, WAL/SHM sidecars)
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Logs and tool caches
+*.log
+.vite/
+coverage/
+.oxlintcache
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

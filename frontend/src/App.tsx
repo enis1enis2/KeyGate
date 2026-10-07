@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
+import { AdminLogin } from './components/AdminLogin';
 import { DashboardTab } from './components/DashboardTab';
 import { ProvidersTab } from './components/ProvidersTab';
 import { KeysTab } from './components/KeysTab';
 import { RoutingTab } from './components/RoutingTab';
+import { PricingTab } from './components/PricingTab';
 import { GatewayKeysTab } from './components/GatewayKeysTab';
 import { LogsTab } from './components/LogsTab';
 
@@ -12,7 +14,10 @@ import {
   fetchProviders, 
   fetchKeys, 
   fetchAliases, 
-  fetchGatewayKeys 
+  fetchGatewayKeys,
+  getAdminToken,
+  subscribeToUnauthorized,
+  UnauthorizedError 
 } from './api';
 import type { 
   DashboardStats, 
@@ -30,34 +35,63 @@ export function App() {
   const [aliases, setAliases] = useState<ModelAlias[]>([]);
   const [gatewayKeys, setGatewayKeys] = useState<GatewayKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [needsAuth, setNeedsAuth] = useState(() => !getAdminToken());
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  const loadData = async () => {
-    try {
-      const [s, p, k, a, g] = await Promise.all([
-        fetchStats().catch(() => null),
-        fetchProviders().catch(() => []),
-        fetchKeys().catch(() => []),
-        fetchAliases().catch(() => []),
-        fetchGatewayKeys().catch(() => []),
-      ]);
+  const loadData = () => {
+    if (!getAdminToken()) return Promise.resolve();
 
-      if (s) setStats(s);
-      setProviders(p);
-      setKeys(k);
-      setAliases(a);
-      setGatewayKeys(g);
-    } catch (err) {
-      console.error('Failed to load gateway data:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    return Promise.all([
+      fetchStats().catch(() => null),
+      fetchProviders().catch(() => []),
+      fetchKeys().catch(() => []),
+      fetchAliases().catch(() => []),
+      fetchGatewayKeys().catch(() => []),
+    ])
+      .then(([s, p, k, a, g]) => {
+        if (s) setStats(s);
+        setProviders(p);
+        setKeys(k);
+        setAliases(a);
+        setGatewayKeys(g);
+        setNeedsAuth(false);
+        setAuthError(null);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof UnauthorizedError) {
+          setAuthError(err.message);
+          setNeedsAuth(true);
+          return;
+        }
+        console.error('Failed to load gateway data:', err);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  };
+
+  const handleAuthenticated = () => {
+    setIsLoading(true);
+    loadData();
   };
 
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
+    const unsubscribe = subscribeToUnauthorized((message) => {
+      setAuthError(message);
+      setNeedsAuth(true);
+      setIsLoading(false);
+    });
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
   }, []);
+
+  if (needsAuth) {
+    return <AdminLogin error={authError} onAuthenticated={handleAuthenticated} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
@@ -79,6 +113,7 @@ export function App() {
               <DashboardTab 
                 stats={stats} 
                 keys={keys} 
+                aliases={aliases}
                 onRefresh={loadData} 
               />
             )}
@@ -102,6 +137,14 @@ export function App() {
               <RoutingTab 
                 aliases={aliases} 
                 providers={providers} 
+                stats={stats}
+                onRefresh={loadData} 
+              />
+            )}
+
+            {activeTab === 'pricing' && (
+              <PricingTab 
+                providers={providers} 
                 onRefresh={loadData} 
               />
             )}
@@ -109,6 +152,7 @@ export function App() {
             {activeTab === 'gateway' && (
               <GatewayKeysTab 
                 gatewayKeys={gatewayKeys} 
+                aliases={aliases}
                 onRefresh={loadData} 
               />
             )}
@@ -128,7 +172,7 @@ export function App() {
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-300">KeyGate Gateway</span>
             <span>•</span>
-            <span>Self-Hosted Upstream Key Pool for n8n</span>
+            <span>Self-Hosted AI API Pool</span>
           </div>
 
           <div className="flex items-center gap-4 font-mono">

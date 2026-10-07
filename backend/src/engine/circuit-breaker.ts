@@ -89,7 +89,6 @@ export class CircuitBreakerManager {
       const consecutiveFailures = key.consecutive_failures + 1;
       let newState: CircuitState = key.circuit_state;
       let cooldownUntil = key.cooldown_until;
-      let disabledReason: string | undefined = undefined;
 
       // DECISION: Auth failure immediately disables the key pending human review to avoid repeated unauthorized requests.
       if (errorType === 'auth_fail') {

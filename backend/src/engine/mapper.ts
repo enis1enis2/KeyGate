@@ -5,7 +5,7 @@ import type {
   OpenAIChatRequest, 
   OpenAIChatResponse, 
   OpenAIChatChunk,
-  OpenAIMessage
+  OpenAIChatChoice
 } from '../types/index.js';
 
 // DECISION: Register rich helper functions in Handlebars for json serialization, conditionals, and array joining.
@@ -37,8 +37,8 @@ export class TemplateMapper {
     key: string,
     url: string,
     headers: Record<string, string>,
-    bodyObj?: any
-  ): { url: string; headers: Record<string, string>; bodyObj?: any } {
+    bodyObj?: unknown
+  ): { url: string; headers: Record<string, string>; bodyObj?: unknown } {
     const auth = spec.auth;
     const renderedAuthValue = auth.template.replace(/\{\{\s*key\s*\}\}/g, key);
 
@@ -56,7 +56,7 @@ export class TemplateMapper {
     } else if (auth.type === 'body') {
       const fieldName = auth.name || 'api_key';
       if (typeof updatedBody === 'object' && updatedBody !== null) {
-        updatedBody[fieldName] = renderedAuthValue;
+        (updatedBody as Record<string, unknown>)[fieldName] = renderedAuthValue;
       }
     }
 
@@ -148,7 +148,7 @@ export class TemplateMapper {
       key: decryptedKey,
     };
 
-    let mappedBodyObj: any;
+    let mappedBodyObj: unknown;
 
     if (mapping.engine === 'jsonata' && mapping.template) {
       const expression = jsonata(mapping.template);
@@ -179,12 +179,12 @@ export class TemplateMapper {
   // Map non-streaming response body into standard OpenAI chat completion response
   public static async mapResponse(
     spec: ProviderSpec,
-    rawBody: any,
+    rawBody: unknown,
     modelName: string
   ): Promise<OpenAIChatResponse> {
     // Fast-path: "openai-compatible" preset
     if (spec.preset === 'openai-compatible' || !spec.response_mapping) {
-      if (typeof rawBody === 'object' && rawBody !== null && rawBody.choices) {
+      if (typeof rawBody === 'object' && rawBody !== null && 'choices' in rawBody) {
         return rawBody as OpenAIChatResponse;
       }
     }
@@ -288,17 +288,22 @@ export class TemplateMapper {
       }
     }
 
-    throw new Error(`Unsupported mapping engine: ${(mapping as any).engine}`);
+    throw new Error(`Unsupported mapping engine: ${mapping.engine}`);
   }
 
   // DECISION: Map streaming chunk from SSE or NDJSON into standard OpenAI chunk format.
   public static async mapChunk(
     spec: ProviderSpec,
-    rawChunkData: any,
+    rawChunkData: unknown,
     modelName: string
   ): Promise<OpenAIChatChunk | null> {
+    const chunkRecord =
+      typeof rawChunkData === 'object' && rawChunkData !== null
+        ? (rawChunkData as Record<string, unknown>)
+        : null;
+
     if (spec.preset === 'openai-compatible' || !spec.streaming?.chunk_mapping) {
-      if (typeof rawChunkData === 'object' && rawChunkData !== null && rawChunkData.choices) {
+      if (chunkRecord?.choices) {
         return rawChunkData as OpenAIChatChunk;
       }
     }
@@ -306,7 +311,7 @@ export class TemplateMapper {
     const chunkMapping = spec.streaming?.chunk_mapping;
     if (!chunkMapping || !chunkMapping.template) {
       // Default extraction if text field is present
-      const content = rawChunkData?.text || rawChunkData?.delta || rawChunkData?.content || '';
+      const content = (chunkRecord?.text || chunkRecord?.delta || chunkRecord?.content || '') as string;
       return {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion.chunk',
@@ -316,7 +321,7 @@ export class TemplateMapper {
           {
             index: 0,
             delta: { content },
-            finish_reason: rawChunkData?.finish_reason || null,
+            finish_reason: (chunkRecord?.finish_reason as OpenAIChatChoice['finish_reason']) || null,
           },
         ],
       };

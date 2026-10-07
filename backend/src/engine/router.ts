@@ -1,19 +1,28 @@
-import yaml from 'yaml';
 import crypto from 'crypto';
 import { CONFIG } from '../config.js';
-import { ProviderRepo, ApiKeyRepo, ModelAliasRepo, RequestLogRepo } from '../db/index.js';
+import { ApiKeyRepo, RequestLogRepo } from '../db/index.js';
 import { decryptSecret } from '../crypto.js';
-import { TemplateMapper, type PreparedUpstreamRequest } from './mapper.js';
+import { TemplateMapper } from './mapper.js';
 import { CircuitBreakerManager } from './circuit-breaker.js';
-import { classifyError } from './error-classifier.js';
+import { classifyError, type ClassifiedError } from './error-classifier.js';
+import { computeCost } from './pricing.js';
+import { toErrorInfo } from '../errors.js';
+import { quotaRejections } from '../metrics.js';
+import {
+  assertPoolBudget,
+  loadProviderSpec,
+  providerHealthScore,
+  resolveTargets,
+  selectCandidateKeys,
+  sortTargets,
+} from './targeting.js';
 import type { 
   ProviderSpec, 
   ApiKeyRecord, 
-  TargetConfig, 
+  TargetConfig,
   ModelAliasRecord, 
   OpenAIChatRequest, 
-  OpenAIChatResponse,
-  ErrorClassificationType 
+  OpenAIChatResponse
 } from '../types/index.js';
 
 export interface RouteAttemptResult {
@@ -33,7 +42,6 @@ export interface RouteAttemptResult {
 
 export class SmartRouter {
   private static instance: SmartRouter;
-  private roundRobinIndices: Map<string, number> = new Map();
 
   private constructor() {}
 
@@ -46,75 +54,19 @@ export class SmartRouter {
 
   // Load and parse provider YAML spec
   public getProviderSpec(providerId: string): ProviderSpec | null {
-    const p = ProviderRepo.getById(providerId);
-    if (!p || !p.is_active) return null;
-    try {
-      return yaml.parse(p.spec_yaml) as ProviderSpec;
-    } catch {
-      return null;
-    }
+    return loadProviderSpec(providerId);
   }
 
   // DECISION: Target selection supports weighted-by-health, round-robin, and priority strategies.
+  // Shared with engine/proxy.ts via engine/targeting.ts.
   public sortTargets(alias: ModelAliasRecord, targets: TargetConfig[]): TargetConfig[] {
-    if (targets.length <= 1) return targets;
-
-    if (alias.strategy === 'priority') {
-      // Sort ascending by priority number (lowest number = highest priority)
-      return [...targets].sort((a, b) => a.priority - b.priority);
-    }
-
-    if (alias.strategy === 'round-robin') {
-      const idx = this.roundRobinIndices.get(alias.alias_name) || 0;
-      const nextIdx = (idx + 1) % targets.length;
-      this.roundRobinIndices.set(alias.alias_name, nextIdx);
-
-      const rotated = [...targets.slice(idx), ...targets.slice(0, idx)];
-      return rotated;
-    }
-
-    // Default: 'weighted-by-health'
-    const cb = CircuitBreakerManager.getInstance();
-    const scored = targets.map((t) => {
-      const keys = ApiKeyRepo.getByProvider(t.provider_id);
-      let bestKeyScore = 0;
-      for (const k of keys) {
-        const stats = cb.getKeyStats(k.id);
-        const avail = cb.isKeyAvailable(k.id);
-        if (avail.available) {
-          const successRatio = stats.rolling_success_rate / 100;
-          const latencyPenalty = Math.max(stats.latency_p50, 50);
-          const score = (t.weight || 1) * (successRatio * successRatio * 1000) / latencyPenalty;
-          if (score > bestKeyScore) bestKeyScore = score;
-        }
-      }
-      return { target: t, score: bestKeyScore };
-    });
-
-    scored.sort((a, b) => b.score - a.score);
-    return scored.map((s) => s.target);
+    return sortTargets(alias, targets, providerHealthScore);
   }
 
-  // Select healthy keys for a provider ordered by health score
+  // Select healthy keys for a provider ordered by health score.
+  // Keys whose daily budget is already exhausted are excluded so they can never be dispatched to.
   public getCandidateKeys(providerId: string): { key: ApiKeyRecord; isProbe?: boolean }[] {
-    const keys = ApiKeyRepo.getByProvider(providerId);
-    const cb = CircuitBreakerManager.getInstance();
-
-    const healthy: { key: ApiKeyRecord; score: number; isProbe?: boolean }[] = [];
-
-    for (const key of keys) {
-      const availability = cb.isKeyAvailable(key.id);
-      if (availability.available) {
-        const stats = cb.getKeyStats(key.id);
-        const successRatio = stats.rolling_success_rate / 100;
-        const latencyPenalty = Math.max(stats.latency_p50, 50);
-        const score = (successRatio * successRatio * 1000) / latencyPenalty;
-        healthy.push({ key, score, isProbe: availability.isProbe });
-      }
-    }
-
-    healthy.sort((a, b) => b.score - a.score);
-    return healthy.map((h) => ({ key: h.key, isProbe: h.isProbe }));
+    return selectCandidateKeys(providerId).available;
   }
 
   // Dispatch a single request attempt to an upstream provider key
@@ -124,7 +76,7 @@ export class SmartRouter {
     targetModel: string,
     req: OpenAIChatRequest,
     timeoutMs: number,
-    isHedged: boolean = false
+    _isHedged: boolean = false
   ): Promise<{ response?: OpenAIChatResponse; streamResponse?: Response; latencyMs: number; statusCode: number; promptTokens: number; completionTokens: number }> {
     const decryptedKey = decryptSecret(keyRecord.encrypted_key, keyRecord.iv, keyRecord.tag);
     const prepared = await TemplateMapper.mapRequest(spec, req, decryptedKey, targetModel);
@@ -142,14 +94,15 @@ export class SmartRouter {
         body: prepared.body,
         signal: controller.signal,
       });
-    } catch (err: any) {
+    } catch (err) {
       clearTimeout(timeoutTimer);
       const latencyMs = Date.now() - startTime;
-      const isTimeout = err.name === 'AbortError';
+      const info = toErrorInfo(err);
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
       const classified = classifyError(
         isTimeout ? 504 : 500,
         {},
-        { message: err.message || (isTimeout ? 'Upstream request timed out' : 'Network error') },
+        { message: info.message || (isTimeout ? 'Upstream request timed out' : 'Network error') },
         spec.error_classification
       );
       throw {
@@ -166,7 +119,7 @@ export class SmartRouter {
 
     // Handle HTTP error responses
     if (!upstreamRes.ok) {
-      let rawErrorBody: any = null;
+      let rawErrorBody: unknown = null;
       try {
         const text = await upstreamRes.text();
         try {
@@ -231,49 +184,36 @@ export class SmartRouter {
     aliasName: string,
     req: OpenAIChatRequest,
     traceId: string = crypto.randomUUID(),
-    gatewayKeyId?: string
+    gatewayKeyId?: string,
+    endpoint: string = 'chat'
   ): Promise<RouteAttemptResult> {
-    const alias = ModelAliasRepo.getByName(aliasName);
-    let targets: TargetConfig[] = [];
+    // Pool resolution + health/ranking logic shared with engine/proxy.ts (engine/targeting.ts).
+    const resolved = resolveTargets(aliasName, req.model, 'chat');
+    const { alias, targets } = resolved;
 
     if (alias) {
-      try {
-        targets = JSON.parse(alias.targets_json);
-      } catch {
-        targets = [];
-      }
-    }
-
-    // Fallback: If alias not found, try matching aliasName directly as a provider ID
-    if (targets.length === 0) {
-      const directProvider = ProviderRepo.getById(aliasName);
-      if (directProvider) {
-        targets = [{ provider_id: directProvider.id, model: req.model, weight: 1, priority: 1 }];
-      } else {
-        // Or find first active provider
-        const allProviders = ProviderRepo.getAll().filter((p) => p.is_active);
-        if (allProviders.length > 0) {
-          targets = [{ provider_id: allProviders[0]!.id, model: req.model, weight: 1, priority: 1 }];
-        }
-      }
+      assertPoolBudget(alias);
     }
 
     if (targets.length === 0) {
       throw new Error(`No active provider targets configured for model alias '${aliasName}'.`);
     }
 
-    const sortedTargets = alias ? this.sortTargets(alias, targets) : targets;
+    const sortedTargets = alias ? sortTargets(alias, targets, providerHealthScore) : targets;
     const timeoutMs = alias?.timeout_ms || CONFIG.defaultTimeoutMs;
     const cb = CircuitBreakerManager.getInstance();
 
-    let lastError: any = null;
+    let lastError: unknown = null;
+    let budgetBlockedCount = 0;
 
     // Failover loop: iterate over targets, then candidate keys
     for (const target of sortedTargets) {
       const spec = this.getProviderSpec(target.provider_id);
       if (!spec) continue;
 
-      const candidateKeys = this.getCandidateKeys(target.provider_id);
+      const selection = selectCandidateKeys(target.provider_id);
+      budgetBlockedCount += selection.budgetBlocked;
+      const candidateKeys = selection.available;
       if (candidateKeys.length === 0) continue;
 
       for (const { key } of candidateKeys) {
@@ -294,7 +234,7 @@ export class SmartRouter {
                 gatewayKeyId,
                 aliasName
               );
-            } catch (hedgeErr: any) {
+            } catch (hedgeErr) {
               lastError = hedgeErr;
               continue;
             }
@@ -312,6 +252,14 @@ export class SmartRouter {
             attempt.promptTokens,
             attempt.completionTokens
           );
+
+          const cost = computeCost(
+            target.provider_id,
+            target.model,
+            attempt.promptTokens,
+            attempt.completionTokens
+          );
+          ApiKeyRepo.addDailyUsage(key.id, cost);
 
           RequestLogRepo.insert({
             id: crypto.randomUUID(),
@@ -333,6 +281,9 @@ export class SmartRouter {
             response_snippet: typeof attempt.response?.choices?.[0]?.message?.content === 'string'
               ? attempt.response.choices[0].message.content.slice(0, 300)
               : attempt.response?.choices?.[0]?.message?.content ? JSON.stringify(attempt.response.choices[0].message.content).slice(0, 300) : null,
+            endpoint,
+            cost,
+            pool_name: aliasName,
             created_at: new Date().toISOString(),
           });
 
@@ -345,17 +296,18 @@ export class SmartRouter {
             isHedged: false,
             spec,
           };
-        } catch (err: any) {
-          const classified = err.classified || {
+        } catch (err) {
+          const info = toErrorInfo(err);
+          const classified: ClassifiedError = info.classified ?? {
             errorType: 'fatal',
             statusCode: 500,
-            message: err.message || 'Unknown routing error',
+            message: info.message || 'Unknown routing error',
           };
 
           cb.recordCallResult(
             key.id,
             false,
-            err.latencyMs || 0,
+            info.latencyMs || 0,
             0,
             0,
             classified.errorType,
@@ -372,15 +324,18 @@ export class SmartRouter {
             key_id: key.id,
             model: target.model,
             status: 'error',
-            status_code: err.statusCode || 500,
+            status_code: info.statusCode || 500,
             error_type: classified.errorType,
-            latency_ms: err.latencyMs || 0,
+            latency_ms: info.latencyMs || 0,
             prompt_tokens: 0,
             completion_tokens: 0,
             is_stream: req.stream ? 1 : 0,
             is_hedged: 0,
             request_snippet: JSON.stringify(req.messages?.slice(-1)),
             response_snippet: classified.message,
+            endpoint,
+            cost: 0,
+            pool_name: aliasName,
             created_at: new Date().toISOString(),
           });
 
@@ -397,6 +352,21 @@ export class SmartRouter {
       }
     }
 
+    // If nothing was dispatched only because every key is over its daily budget, surface that
+    // as a quota failure rather than a generic "all targets failed".
+    if (!lastError && budgetBlockedCount > 0) {
+      quotaRejections.inc({ scope: 'key_budget_cap' });
+      throw {
+        classified: {
+          errorType: 'quota_exhausted',
+          statusCode: 429,
+          message: `Daily budget exhausted for every upstream key behind model '${aliasName}'. Resets at the next UTC midnight.`,
+        },
+        statusCode: 429,
+        latencyMs: 0,
+      };
+    }
+
     throw lastError || new Error(`All provider targets and keys failed for alias '${aliasName}'.`);
   }
 
@@ -409,9 +379,9 @@ export class SmartRouter {
     req: OpenAIChatRequest,
     timeoutMs: number,
     hedgeDelayMs: number,
-    traceId: string,
-    gatewayKeyId: string | undefined,
-    aliasName: string
+    _traceId: string,
+    _gatewayKeyId: string | undefined,
+    _aliasName: string
   ): Promise<RouteAttemptResult> {
     const cb = CircuitBreakerManager.getInstance();
 
@@ -441,7 +411,7 @@ export class SmartRouter {
             spec,
           });
         })
-        .catch((err) => {
+        .catch((_err) => {
           primaryFinished = true;
           if (!resolved) {
             // If primary fails quickly before hedge fires, hedge will still run or we reject

@@ -6,14 +6,10 @@ import {
   RotateCcw, 
   Power, 
   Lock, 
-  Sliders,
-  DollarSign,
-  Zap,
-  CheckCircle2,
   AlertTriangle
 } from 'lucide-react';
 import type { ApiKeyItem, Provider } from '../types';
-import { addKey, updateKey, deleteKey } from '../api';
+import { addKey, updateKey, deleteKey, errorMessage } from '../api';
 
 interface KeysTabProps {
   keys: ApiKeyItem[];
@@ -57,8 +53,8 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
       setTpmCap(0);
       setBudgetCap(0);
       onRefresh();
-    } catch (err: any) {
-      setErrorMsg(err.message);
+    } catch (err) {
+      setErrorMsg(errorMessage(err));
     } finally {
       setIsSubmitting(false);
     }

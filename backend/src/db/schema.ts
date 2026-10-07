@@ -95,4 +95,32 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_a
 CREATE INDEX IF NOT EXISTS idx_request_logs_key_id ON request_logs(key_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_status ON request_logs(status);
 CREATE INDEX IF NOT EXISTS idx_request_logs_provider_id ON request_logs(provider_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_gateway_key_created ON request_logs(gateway_key_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_request_logs_alias_created ON request_logs(alias_name, created_at);
+
+-- Per-token pricing used to compute request cost, enforce daily budgets and report spend.
+-- provider_id/model of '*' act as wildcards so a single row can price a whole provider.
+CREATE TABLE IF NOT EXISTS model_pricing (
+  id TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL DEFAULT '*',
+  model TEXT NOT NULL DEFAULT '*',
+  input_per_mtok REAL NOT NULL DEFAULT 0,
+  output_per_mtok REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_lookup ON model_pricing(provider_id, model);
+
+-- Sticky routing for resources that live on a single upstream account (batches, files).
+CREATE TABLE IF NOT EXISTS sticky_routes (
+  resource_id TEXT PRIMARY KEY,
+  pool_name TEXT,
+  endpoint TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sticky_routes_created_at ON sticky_routes(created_at);
 `;

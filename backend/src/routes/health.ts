@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { getDb, ApiKeyRepo } from '../db/index.js';
+import { errorMessage } from '../errors.js';
 
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/healthz', async (request, reply) => {
@@ -10,8 +11,8 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
       const db = getDb();
       db.prepare('SELECT 1').get();
       activeKeys = ApiKeyRepo.getAll().filter((k) => k.is_active).length;
-    } catch (err: any) {
-      dbStatus = `error: ${err.message}`;
+    } catch (err) {
+      dbStatus = `error: ${errorMessage(err)}`;
     }
 
     const isHealthy = dbStatus === 'ok';

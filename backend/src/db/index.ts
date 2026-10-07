@@ -1,15 +1,36 @@
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { CONFIG } from '../config.js';
 import { SCHEMA_SQL } from './schema.js';
+import { runMigrations } from './migrations.js';
 import type { 
-  ProviderSpec, 
   ApiKeyRecord, 
   ModelAliasRecord, 
   GatewayKeyRecord, 
-  RequestLogRecord 
+  RequestLogRecord,
+  ModelPricingRecord,
+  StickyRouteRecord
 } from '../types/index.js';
+
+interface ProviderRow {
+  id: string;
+  name: string;
+  description: string | null;
+  preset: string;
+  spec_yaml: string;
+  is_active: number;
+}
+
+interface StatsRow {
+  totalRequests?: number;
+  successRequests?: number;
+  errorRequests?: number;
+  avgLatencyMs?: number;
+  totalPromptTokens?: number;
+  totalCompletionTokens?: number;
+}
 
 let dbInstance: Database.Database | null = null;
 
@@ -24,6 +45,7 @@ export function getDb(): Database.Database {
 
   dbInstance = new Database(CONFIG.dbPath);
   dbInstance.exec(SCHEMA_SQL);
+  runMigrations(dbInstance);
 
   return dbInstance;
 }
@@ -52,15 +74,15 @@ export const ProviderRepo = {
     stmt.run(provider.id, provider.name, provider.description || null, provider.preset || 'custom', provider.spec_yaml);
   },
 
-  getAll(): Array<{ id: string; name: string; description: string | null; preset: string; spec_yaml: string; is_active: number }> {
+  getAll(): ProviderRow[] {
     const db = getDb();
-    return db.prepare(`SELECT * FROM providers ORDER BY name ASC`).all() as any[];
+    return db.prepare(`SELECT * FROM providers ORDER BY name ASC`).all() as ProviderRow[];
   },
 
-  getById(id: string): { id: string; name: string; description: string | null; preset: string; spec_yaml: string; is_active: number } | null {
+  getById(id: string): ProviderRow | null {
     const db = getDb();
     const row = db.prepare(`SELECT * FROM providers WHERE id = ?`).get(id);
-    return (row as any) || null;
+    return (row as ProviderRow | undefined) || null;
   },
 
   delete(id: string): boolean {
@@ -161,6 +183,15 @@ export const ApiKeyRepo = {
     const db = getDb();
     const res = db.prepare(`DELETE FROM api_keys WHERE id = ?`).run(id);
     return res.changes > 0;
+  },
+
+  // Lifetime cumulative spend for this key. The daily budget gate reads
+  // RequestLogRepo.getSpendByKeyToday() instead, so day rollover needs no reset job.
+  addDailyUsage(id: string, amount: number): void {
+    if (!(amount > 0)) return;
+    const db = getDb();
+    db.prepare(`UPDATE api_keys SET daily_usage = daily_usage + ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(amount, id);
   }
 };
 
@@ -171,6 +202,10 @@ export const ModelAliasRepo = {
     alias_name: string;
     strategy: string;
     targets_json: string;
+    description?: string | null;
+    endpoint_kind?: string;
+    daily_token_cap?: number;
+    daily_spend_cap?: number;
     hedging_enabled?: boolean;
     hedged_delay_ms?: number;
     timeout_ms?: number;
@@ -179,11 +214,16 @@ export const ModelAliasRepo = {
     const db = getDb();
     const stmt = db.prepare(`
       INSERT INTO model_aliases (
-        id, alias_name, strategy, targets_json, hedging_enabled, hedged_delay_ms, timeout_ms, is_active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        id, alias_name, strategy, targets_json, description, endpoint_kind,
+        daily_token_cap, daily_spend_cap, hedging_enabled, hedged_delay_ms, timeout_ms, is_active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(alias_name) DO UPDATE SET
         strategy = excluded.strategy,
         targets_json = excluded.targets_json,
+        description = excluded.description,
+        endpoint_kind = excluded.endpoint_kind,
+        daily_token_cap = excluded.daily_token_cap,
+        daily_spend_cap = excluded.daily_spend_cap,
         hedging_enabled = excluded.hedging_enabled,
         hedged_delay_ms = excluded.hedged_delay_ms,
         timeout_ms = excluded.timeout_ms,
@@ -195,6 +235,10 @@ export const ModelAliasRepo = {
       alias.alias_name,
       alias.strategy,
       alias.targets_json,
+      alias.description || null,
+      alias.endpoint_kind || 'chat',
+      alias.daily_token_cap || 0,
+      alias.daily_spend_cap || 0,
       alias.hedging_enabled ? 1 : 0,
       alias.hedged_delay_ms || 500,
       alias.timeout_ms || 30000,
@@ -298,8 +342,9 @@ export const RequestLogRepo = {
       INSERT INTO request_logs (
         id, trace_id, gateway_key_id, alias_name, provider_id, key_id, model,
         status, status_code, error_type, latency_ms, prompt_tokens, completion_tokens,
-        is_stream, is_hedged, request_snippet, response_snippet
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        is_stream, is_hedged, request_snippet, response_snippet,
+        endpoint, cost, pool_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       log.id,
@@ -318,14 +363,90 @@ export const RequestLogRepo = {
       log.is_stream,
       log.is_hedged,
       log.request_snippet || null,
-      log.response_snippet || null
+      log.response_snippet || null,
+      log.endpoint || 'chat',
+      log.cost || 0,
+      log.pool_name || null
     );
   },
 
-  getRecent(limit: number = 100, filters?: { status?: string; provider_id?: string; model?: string }): RequestLogRecord[] {
+  // Streaming responses finish after the router has already written its log row,
+  // so real usage/cost is backfilled here once the upstream stream is drained.
+  finalizeUsage(traceId: string, promptTokens: number, completionTokens: number, cost: number): boolean {
+    const db = getDb();
+    const res = db.prepare(`
+      UPDATE request_logs
+      SET prompt_tokens = ?, completion_tokens = ?, cost = ?
+      WHERE trace_id = ?
+    `).run(promptTokens, completionTokens, cost, traceId);
+    return res.changes > 0;
+  },
+
+  getSpendByKeyToday(keyId: string): number {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(cost), 0) AS spend
+      FROM request_logs
+      WHERE key_id = ? AND created_at >= datetime('now', 'start of day')
+    `).get(keyId) as { spend?: number } | undefined;
+    return row?.spend || 0;
+  },
+
+  getUsageTodayByPool(aliasName: string): { tokens: number; spend: number } {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT
+        COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens,
+        COALESCE(SUM(cost), 0) AS spend
+      FROM request_logs
+      WHERE alias_name = ? AND created_at >= datetime('now', 'start of day')
+    `).get(aliasName) as { tokens?: number; spend?: number } | undefined;
+    return { tokens: row?.tokens || 0, spend: row?.spend || 0 };
+  },
+
+  getUsageTodayByGatewayKey(gatewayKeyId: string): { tokens: number; spend: number; requests: number } {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT
+        COUNT(*) AS requests,
+        COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens,
+        COALESCE(SUM(cost), 0) AS spend
+      FROM request_logs
+      WHERE gateway_key_id = ? AND created_at >= datetime('now', 'start of day')
+    `).get(gatewayKeyId) as { requests?: number; tokens?: number; spend?: number } | undefined;
+    return { requests: row?.requests || 0, tokens: row?.tokens || 0, spend: row?.spend || 0 };
+  },
+
+  getSpendTodayTotal(): number {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(cost), 0) AS spend
+      FROM request_logs
+      WHERE created_at >= datetime('now', 'start of day')
+    `).get() as { spend?: number } | undefined;
+    return row?.spend || 0;
+  },
+
+  getPoolUsageTodayAll(): Array<{ pool: string; tokens: number; spend: number; requests: number }> {
+    const db = getDb();
+    return db.prepare(`
+      SELECT
+        COALESCE(alias_name, model) AS pool,
+        COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens,
+        COALESCE(SUM(cost), 0) AS spend,
+        COUNT(*) AS requests
+      FROM request_logs
+      WHERE created_at >= datetime('now', 'start of day')
+        AND COALESCE(alias_name, model, '') != ''
+      GROUP BY COALESCE(alias_name, model)
+      ORDER BY spend DESC
+    `).all() as Array<{ pool: string; tokens: number; spend: number; requests: number }>;
+  },
+
+  getRecent(limit: number = 100, filters?: { status?: string; provider_id?: string; model?: string; endpoint?: string }): RequestLogRecord[] {
     const db = getDb();
     let query = `SELECT * FROM request_logs WHERE 1=1`;
-    const params: any[] = [];
+    const params: Array<string | number> = [];
 
     if (filters?.status) {
       query += ` AND status = ?`;
@@ -338,6 +459,10 @@ export const RequestLogRepo = {
     if (filters?.model) {
       query += ` AND model LIKE ?`;
       params.push(`%${filters.model}%`);
+    }
+    if (filters?.endpoint) {
+      query += ` AND endpoint = ?`;
+      params.push(filters.endpoint);
     }
 
     query += ` ORDER BY created_at DESC LIMIT ?`;
@@ -375,7 +500,7 @@ export const RequestLogRepo = {
         SUM(completion_tokens) as totalCompletionTokens
       FROM request_logs
       WHERE created_at >= datetime('now', '-24 hours')
-    `).get() as any;
+    `).get() as StatsRow | undefined;
 
     return {
       totalRequests: row?.totalRequests || 0,
@@ -385,5 +510,102 @@ export const RequestLogRepo = {
       totalPromptTokens: row?.totalPromptTokens || 0,
       totalCompletionTokens: row?.totalCompletionTokens || 0,
     };
+  }
+};
+
+// ----------------- MODEL PRICING REPOSITORY -----------------
+export const PricingRepo = {
+  upsert(row: {
+    id?: string;
+    provider_id: string;
+    model: string;
+    input_per_mtok: number;
+    output_per_mtok: number;
+  }): string {
+    const db = getDb();
+    const id = row.id || crypto.randomUUID();
+    const stmt = db.prepare(`
+      INSERT INTO model_pricing (id, provider_id, model, input_per_mtok, output_per_mtok, updated_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(provider_id, model) DO UPDATE SET
+        input_per_mtok = excluded.input_per_mtok,
+        output_per_mtok = excluded.output_per_mtok,
+        updated_at = datetime('now')
+    `);
+    stmt.run(id, row.provider_id, row.model, row.input_per_mtok, row.output_per_mtok);
+    return id;
+  },
+
+  getAll(): ModelPricingRecord[] {
+    const db = getDb();
+    return db.prepare(`SELECT * FROM model_pricing ORDER BY provider_id ASC, model ASC`).all() as ModelPricingRecord[];
+  },
+
+  // Resolve the most specific pricing row: exact pair, then provider wildcard,
+  // then model wildcard, then the global fallback. Single indexed query per request.
+  findBest(providerId: string, model: string): ModelPricingRecord | null {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT * FROM model_pricing
+      WHERE (provider_id = ? AND model = ?)
+         OR (provider_id = ? AND model = '*')
+         OR (provider_id = '*' AND model = ?)
+         OR (provider_id = '*' AND model = '*')
+      ORDER BY
+        CASE
+          WHEN provider_id = ? AND model = ? THEN 0
+          WHEN provider_id = ? AND model = '*' THEN 1
+          WHEN provider_id = '*' AND model = ? THEN 2
+          ELSE 3
+        END
+      LIMIT 1
+    `).get(providerId, model, providerId, model, providerId, model, providerId, model) as
+      | ModelPricingRecord
+      | undefined;
+    return row || null;
+  },
+
+  delete(id: string): boolean {
+    const db = getDb();
+    const res = db.prepare(`DELETE FROM model_pricing WHERE id = ?`).run(id);
+    return res.changes > 0;
+  }
+};
+
+// ----------------- STICKY ROUTE REPOSITORY -----------------
+export const StickyRouteRepo = {
+  record(route: {
+    resource_id: string;
+    pool_name: string | null;
+    endpoint: string;
+    provider_id: string;
+    key_id: string;
+  }): void {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO sticky_routes (resource_id, pool_name, endpoint, provider_id, key_id, created_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(resource_id) DO UPDATE SET
+        pool_name = excluded.pool_name,
+        endpoint = excluded.endpoint,
+        provider_id = excluded.provider_id,
+        key_id = excluded.key_id
+    `).run(route.resource_id, route.pool_name, route.endpoint, route.provider_id, route.key_id);
+  },
+
+  get(resourceId: string): StickyRouteRecord | null {
+    const db = getDb();
+    const row = db.prepare(`SELECT * FROM sticky_routes WHERE resource_id = ?`).get(resourceId);
+    return (row as StickyRouteRecord) || null;
+  },
+
+  // DECISION: Sticky routes expire with the same retention window as request logs; an expired
+  // batch/file simply falls back to normal pool routing and may 404 upstream.
+  purgeOlderThan(retentionDays: number = 30): number {
+    const db = getDb();
+    const res = db.prepare(`
+      DELETE FROM sticky_routes WHERE created_at < datetime('now', '-' || ? || ' days')
+    `).run(retentionDays);
+    return res.changes;
   }
 };

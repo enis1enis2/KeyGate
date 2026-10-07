@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SmartRouter } from '../src/engine/router.js';
 import { CircuitBreakerManager } from '../src/engine/circuit-breaker.js';
-import { ModelAliasRepo, ProviderRepo, ApiKeyRepo, getDb } from '../src/db/index.js';
+import { ProviderRepo, ApiKeyRepo, getDb } from '../src/db/index.js';
 import { encryptSecret } from '../src/crypto.js';
 import type { TargetConfig, ModelAliasRecord } from '../src/types/index.js';
 
@@ -19,6 +19,10 @@ describe('SmartRouter & Failover', () => {
       alias_name: 'priority-model',
       strategy: 'priority',
       targets_json: '[]',
+      description: null,
+      endpoint_kind: 'chat',
+      daily_token_cap: 0,
+      daily_spend_cap: 0,
       hedging_enabled: 0,
       hedged_delay_ms: 500,
       timeout_ms: 30000,
@@ -45,6 +49,10 @@ describe('SmartRouter & Failover', () => {
       alias_name: 'rr-model',
       strategy: 'round-robin',
       targets_json: '[]',
+      description: null,
+      endpoint_kind: 'chat',
+      daily_token_cap: 0,
+      daily_spend_cap: 0,
       hedging_enabled: 0,
       hedged_delay_ms: 500,
       timeout_ms: 30000,
@@ -117,6 +125,10 @@ describe('SmartRouter & Failover', () => {
       alias_name: 'health-model',
       strategy: 'weighted-by-health',
       targets_json: '[]',
+      description: null,
+      endpoint_kind: 'chat',
+      daily_token_cap: 0,
+      daily_spend_cap: 0,
       hedging_enabled: 0,
       hedged_delay_ms: 500,
       timeout_ms: 30000,

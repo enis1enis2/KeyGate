@@ -1,5 +1,14 @@
 import yaml from 'yaml';
-import type { ProviderSpec, ProviderAuth } from '../types/index.js';
+import type { ProviderSpec, ProviderAuth, MappingConfig } from '../types/index.js';
+
+interface SampleResponseShape {
+  choices?: Array<{ message?: unknown }>;
+  content?: unknown;
+  response?: unknown;
+  text?: unknown;
+  output?: unknown;
+  result?: unknown;
+}
 
 export interface DraftProviderResult {
   spec: ProviderSpec;
@@ -112,7 +121,7 @@ export function parseCurlAndDraftSpec(curlCmd: string, sampleResponseJson?: stri
   }
 
   // Parse Body and determine mapping
-  let parsedBody: any = null;
+  let parsedBody: unknown = null;
   if (bodyStr) {
     try {
       parsedBody = JSON.parse(bodyStr);
@@ -121,14 +130,19 @@ export function parseCurlAndDraftSpec(curlCmd: string, sampleResponseJson?: stri
     }
   }
 
+  const parsedObj =
+    typeof parsedBody === 'object' && parsedBody !== null
+      ? (parsedBody as { messages?: Array<{ role?: string }> })
+      : null;
+
   let preset: 'openai-compatible' | 'custom' = 'custom';
-  let requestMapping: any = undefined;
-  let responseMapping: any = undefined;
+  let requestMapping: MappingConfig | undefined = undefined;
+  let responseMapping: MappingConfig | undefined = undefined;
 
   // Check if standard OpenAI request
-  if (parsedBody && Array.isArray(parsedBody.messages) && parsedBody.messages[0]?.role) {
+  if (parsedObj && Array.isArray(parsedObj.messages) && parsedObj.messages[0]?.role) {
     preset = 'openai-compatible';
-  } else if (parsedBody) {
+  } else if (parsedObj) {
     // Generate JSONata template draft for request
     preset = 'custom';
     requestMapping = {
@@ -140,7 +154,7 @@ export function parseCurlAndDraftSpec(curlCmd: string, sampleResponseJson?: stri
   // Draft response mapping from sampleResponseJson if provided
   if (sampleResponseJson) {
     try {
-      const resp = JSON.parse(sampleResponseJson);
+      const resp = JSON.parse(sampleResponseJson) as SampleResponseShape;
       if (resp.choices && resp.choices[0]?.message) {
         preset = 'openai-compatible';
       } else {

@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
+import type { FastifyInstance } from 'fastify';
 import yaml from 'yaml';
 import { buildServer } from '../src/server.js';
 import { ProviderRepo, ApiKeyRepo, ModelAliasRepo, GatewayKeyRepo, getDb } from '../src/db/index.js';
 import { encryptSecret, generateGatewayToken } from '../src/crypto.js';
-import type { ProviderSpec, OpenAIChatRequest } from '../src/types/index.js';
+import type { ProviderSpec, OpenAIChatRequest, OpenAIChatResponse } from '../src/types/index.js';
 
 describe('Integration Test: Mock Non-Standard Upstream & Failover', () => {
   let mockServer: http.Server;
   let mockPort: number;
-  let fastifyApp: any;
+  let fastifyApp: FastifyInstance;
   let fastifyPort: number;
   let gatewayToken: string;
 
@@ -198,7 +199,8 @@ describe('Integration Test: Mock Non-Standard Upstream & Failover', () => {
     // 6. Start KeyGate Fastify App
     fastifyApp = await buildServer();
     await fastifyApp.listen({ port: 0, host: '127.0.0.1' });
-    fastifyPort = fastifyApp.server.address().port;
+    const address = fastifyApp.server.address();
+    fastifyPort = typeof address === 'object' && address !== null ? address.port : 0;
   });
 
   afterAll(async () => {
@@ -225,7 +227,7 @@ describe('Integration Test: Mock Non-Standard Upstream & Failover', () => {
     });
 
     expect(res.status).toBe(200);
-    const json: any = await res.json();
+    const json = (await res.json()) as OpenAIChatResponse;
 
     // Verify response was mapped properly into OpenAI format
     expect(json.object).toBe('chat.completion');

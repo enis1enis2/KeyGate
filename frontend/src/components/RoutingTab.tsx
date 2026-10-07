@@ -4,22 +4,21 @@ import {
   Plus, 
   Trash2, 
   ArrowRight, 
-  Zap, 
-  Sliders, 
-  Clock, 
-  ShieldCheck,
-  Check
+  Check,
+  Wallet
 } from 'lucide-react';
-import type { ModelAlias, Provider, TargetConfig } from '../types';
-import { saveAlias, deleteAlias } from '../api';
+import type { ModelAlias, Provider, TargetConfig, EndpointKind, DashboardStats } from '../types';
+import { ENDPOINT_KINDS } from '../types';
+import { saveAlias, deleteAlias, errorMessage } from '../api';
 
 interface RoutingTabProps {
   aliases: ModelAlias[];
   providers: Provider[];
+  stats: DashboardStats | null;
   onRefresh: () => void;
 }
 
-export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRefresh }) => {
+export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stats, onRefresh }) => {
   const [selectedAlias, setSelectedAlias] = useState<ModelAlias | null>(aliases[0] || null);
   const [aliasName, setAliasName] = useState(aliases[0]?.alias_name || '');
   const [strategy, setStrategy] = useState<'weighted-by-health' | 'round-robin' | 'priority'>(
@@ -29,20 +28,35 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
   const [hedgingEnabled, setHedgingEnabled] = useState(Boolean(aliases[0]?.hedging_enabled));
   const [hedgedDelayMs, setHedgedDelayMs] = useState(aliases[0]?.hedged_delay_ms || 500);
   const [timeoutMs, setTimeoutMs] = useState(aliases[0]?.timeout_ms || 30000);
+  const [description, setDescription] = useState(aliases[0]?.description || '');
+  const [endpointKind, setEndpointKind] = useState<EndpointKind>(aliases[0]?.endpoint_kind || 'chat');
+  const [dailyTokenCap, setDailyTokenCap] = useState(aliases[0]?.daily_token_cap || 0);
+  const [dailySpendCap, setDailySpendCap] = useState(aliases[0]?.daily_spend_cap || 0);
 
   const [isSaving, setIsSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
-  const handleSelectAlias = (a: ModelAlias) => {
+  const poolUsage = stats?.poolUsageToday ?? [];
+
+  const usageFor = (poolName: string) =>
+    poolUsage.find((u) => u.pool === poolName) ?? { pool: poolName, tokens: 0, spend: 0, requests: 0 };
+
+  const applyPool = (a: ModelAlias | null) => {
     setSelectedAlias(a);
-    setAliasName(a.alias_name);
-    setStrategy(a.strategy);
-    setTargets(a.targets || []);
-    setHedgingEnabled(Boolean(a.hedging_enabled));
-    setHedgedDelayMs(a.hedged_delay_ms || 500);
-    setTimeoutMs(a.timeout_ms || 30000);
+    setAliasName(a?.alias_name || '');
+    setStrategy(a?.strategy || 'weighted-by-health');
+    setTargets(a?.targets || []);
+    setHedgingEnabled(Boolean(a?.hedging_enabled));
+    setHedgedDelayMs(a?.hedged_delay_ms || 500);
+    setTimeoutMs(a?.timeout_ms || 30000);
+    setDescription(a?.description || '');
+    setEndpointKind(a?.endpoint_kind || 'chat');
+    setDailyTokenCap(a?.daily_token_cap || 0);
+    setDailySpendCap(a?.daily_spend_cap || 0);
     setStatusMsg(null);
   };
+
+  const handleSelectAlias = (a: ModelAlias) => applyPool(a);
 
   const handleAddTarget = () => {
     const defaultProvider = providers[0]?.id || '';
@@ -52,7 +66,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
     ]);
   };
 
-  const handleUpdateTarget = (index: number, field: keyof TargetConfig, val: any) => {
+  const handleUpdateTarget = (index: number, field: keyof TargetConfig, val: string | number) => {
     const updated = [...targets];
     if (!updated[index]) return;
     updated[index] = { ...updated[index], [field]: val };
@@ -65,7 +79,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
 
   const handleSave = async () => {
     if (!aliasName.trim()) {
-      setStatusMsg('Alias name is required');
+      setStatusMsg('Pool name is required');
       return;
     }
     if (targets.length === 0) {
@@ -84,26 +98,26 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
         hedging_enabled: hedgingEnabled,
         hedged_delay_ms: Number(hedgedDelayMs),
         timeout_ms: Number(timeoutMs),
+        description: description.trim() || null,
+        endpoint_kind: endpointKind,
+        daily_token_cap: Number(dailyTokenCap) || 0,
+        daily_spend_cap: Number(dailySpendCap) || 0,
       });
-      setStatusMsg('Alias routing saved successfully!');
+      setStatusMsg('AI pool saved successfully!');
       onRefresh();
       setTimeout(() => setStatusMsg(null), 3000);
-    } catch (err: any) {
-      setStatusMsg(`Error: ${err.message}`);
+    } catch (err) {
+      setStatusMsg(`Error: ${errorMessage(err)}`);
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this model alias?')) return;
+    if (!confirm('Are you sure you want to delete this AI pool? Gateway keys scoped to it will stop working.')) return;
     await deleteAlias(id);
     onRefresh();
-    if (selectedAlias?.id === id) {
-      setSelectedAlias(null);
-      setAliasName('');
-      setTargets([]);
-    }
+    if (selectedAlias?.id === id) applyPool(null);
   };
 
   return (
@@ -111,33 +125,35 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-800">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Model Aliases & Failover Routing</h1>
-          <p className="text-sm text-slate-400">Configure target chains with health-weighted routing, failovers, and speculative hedging</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">AI Pools & Failover Routing</h1>
+          <p className="text-sm text-slate-400">A pool is the model name your clients send. It routes over a health-weighted target chain with failover, budgets, and speculative hedging.</p>
         </div>
         <button
           onClick={() => {
-            setSelectedAlias(null);
-            setAliasName('my-new-alias');
-            setStrategy('weighted-by-health');
+            applyPool(null);
+            setAliasName('my-new-pool');
             setTargets([{ provider_id: providers[0]?.id || '', model: 'llama-3.3-70b-versatile', weight: 1, priority: 1 }]);
-            setHedgingEnabled(false);
-            setHedgedDelayMs(500);
-            setTimeoutMs(30000);
           }}
           className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md shadow-indigo-500/20 transition-all"
         >
           <Plus className="w-3.5 h-3.5" />
-          Create New Alias
+          Create New Pool
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Aliases List */}
+        {/* Left Column: Pools List */}
         <div className="lg:col-span-4 space-y-3">
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Configured Aliases</h2>
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Configured Pools</h2>
           <div className="space-y-2">
+            {aliases.length === 0 && (
+              <div className="p-4 rounded-xl border border-dashed border-slate-800 text-xs text-slate-500 font-mono">
+                No pools yet. Create one to expose a model name to your clients.
+              </div>
+            )}
             {aliases.map((a) => {
               const isSelected = selectedAlias?.id === a.id;
+              const usage = usageFor(a.alias_name);
               return (
                 <div
                   key={a.id}
@@ -152,8 +168,14 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
                     <div>
                       <div className="text-sm font-bold text-white flex items-center gap-2">
                         {a.alias_name}
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                          {a.endpoint_kind}
+                        </span>
                       </div>
                       <div className="text-xs text-indigo-400 font-mono mt-0.5">{a.strategy}</div>
+                      {a.description && (
+                        <div className="text-[11px] text-slate-400 mt-1 line-clamp-2">{a.description}</div>
+                      )}
                     </div>
                     <button
                       onClick={(e) => {
@@ -179,20 +201,35 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
                       </React.Fragment>
                     ))}
                   </div>
+
+                  {/* Today's usage vs caps */}
+                  <div className="mt-3 pt-2 border-t border-slate-800/70 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono">
+                    <span className="text-slate-500">{usage.requests} req today</span>
+                    <span className="text-slate-500">{usage.tokens.toLocaleString()} tok</span>
+                    <span className={a.daily_spend_cap > 0 && usage.spend >= a.daily_spend_cap ? 'text-rose-400' : 'text-emerald-400'}>
+                      ${usage.spend.toFixed(4)}
+                      {a.daily_spend_cap > 0 && <span className="text-slate-500"> / ${a.daily_spend_cap}</span>}
+                    </span>
+                    {a.daily_token_cap > 0 && (
+                      <span className={usage.tokens >= a.daily_token_cap ? 'text-rose-400' : 'text-slate-500'}>
+                        cap {a.daily_token_cap.toLocaleString()} tok
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* Right Column: Routing Editor */}
+        {/* Right Column: Pool Editor */}
         <div className="lg:col-span-8">
           <div className="bg-slate-900/60 rounded-xl border border-slate-800/80 p-5 space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <GitFork className="w-4 h-4 text-indigo-400" />
                 <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Routing Chain Configuration
+                  Pool Configuration
                 </h2>
               </div>
               <div className="flex items-center gap-3">
@@ -207,15 +244,15 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  {isSaving ? 'Saving...' : 'Save Routing'}
+                  {isSaving ? 'Saving...' : 'Save Pool'}
                 </button>
               </div>
             </div>
 
-            {/* Alias Name & Strategy */}
+            {/* Pool Name & Strategy */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Model Alias Name:</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Pool Name (model):</label>
                 <input
                   type="text"
                   value={aliasName}
@@ -224,7 +261,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
                   className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:outline-none"
                 />
                 <span className="text-[10px] text-slate-500 block mt-1">
-                  Exposed to n8n and clients via /v1/chat/completions (model parameter)
+                  Sent as the model parameter by any OpenAI-compatible client
                 </span>
               </div>
 
@@ -232,7 +269,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Routing Strategy:</label>
                 <select
                   value={strategy}
-                  onChange={(e) => setStrategy(e.target.value as any)}
+                  onChange={(e) => setStrategy(e.target.value as ModelAlias['strategy'])}
                   className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none"
                 >
                   <option value="weighted-by-health">weighted-by-health (Health score & latency p50)</option>
@@ -245,8 +282,72 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, onRe
               </div>
             </div>
 
+            {/* Description & Endpoint Kind */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Description:</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                  placeholder="What this pool is for, who may use it, ..."
+                  className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Primary Endpoint:</label>
+                <select
+                  value={endpointKind}
+                  onChange={(e) => setEndpointKind(e.target.value as EndpointKind)}
+                  className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-3 py-2 text-xs focus:border-indigo-500 focus:outline-none"
+                >
+                  {ENDPOINT_KINDS.map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  Documentation hint only; every /v1 surface may use any pool
+                </span>
+              </div>
+            </div>
+
+            {/* Daily Budget Caps */}
+            <div className="border-t border-slate-800 pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Wallet className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Daily Pool Budget (UTC)</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Daily Token Cap (0 = unlimited):</label>
+                  <input
+                    type="number"
+                    value={dailyTokenCap}
+                    onChange={(e) => setDailyTokenCap(parseInt(e.target.value, 10) || 0)}
+                    placeholder="0 = unlimited"
+                    className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">Daily Spend Cap in USD (0 = unlimited):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={dailySpendCap}
+                    onChange={(e) => setDailySpendCap(parseFloat(e.target.value) || 0)}
+                    placeholder="0.00 = unlimited"
+                    className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs"
+                  />
+                </div>
+              </div>
+              <span className="text-[10px] text-slate-500 block mt-2">
+                Checked before dispatch. Exhausting a cap answers new requests with <span className="font-mono text-amber-400">429 quota_exhausted</span>.
+              </span>
+            </div>
+
             {/* Target Chain List */}
-            <div className="space-y-3 pt-2">
+            <div className="space-y-3 pt-2 border-t border-slate-800">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                   Target Providers Chain (Failover Waterfall)

@@ -5,14 +5,14 @@ export interface ClassifiedError {
   statusCode: number;
   message: string;
   retryAfterMs?: number;
-  rawBody?: any;
+  rawBody?: unknown;
 }
 
 // DECISION: Map errors with priority: explicitly defined spec rules first, then standard HTTP status codes and well-known AI provider error patterns as sensible fallbacks.
 export function classifyError(
   statusCode: number,
   responseHeaders: Record<string, string | string[] | undefined>,
-  responseBody: any,
+  responseBody: unknown,
   rules?: ErrorClassificationRule[],
   rateLimitHeadersConfig?: RateLimitHeadersConfig
 ): ClassifiedError {
@@ -20,12 +20,13 @@ export function classifyError(
   let message = `Upstream error with status ${statusCode}`;
 
   if (typeof responseBody === 'object' && responseBody !== null) {
-    if (responseBody.error?.message) {
-      message = responseBody.error.message;
-    } else if (responseBody.message) {
-      message = responseBody.message;
-    } else if (responseBody.detail) {
-      message = typeof responseBody.detail === 'string' ? responseBody.detail : JSON.stringify(responseBody.detail);
+    const body = responseBody as { error?: { message?: string }; message?: string; detail?: unknown };
+    if (body.error?.message) {
+      message = body.error.message;
+    } else if (body.message) {
+      message = body.message;
+    } else if (body.detail) {
+      message = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
     }
   }
 

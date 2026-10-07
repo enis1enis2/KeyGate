@@ -2,31 +2,25 @@ import type { FastifyPluginAsync } from 'fastify';
 import client from 'prom-client';
 import { RequestLogRepo, ApiKeyRepo, ProviderRepo } from '../db/index.js';
 import { CircuitBreakerManager } from '../engine/circuit-breaker.js';
-
-// Setup Prometheus Registry and default metrics
-const register = new client.Registry();
-client.collectDefaultMetrics({ register, prefix: 'keygate_' });
-
-// Custom Prometheus Gauges & Counters
-const requestCounter = new client.Counter({
-  name: 'keygate_requests_total',
-  help: 'Total count of requests processed by KeyGate',
-  labelNames: ['provider', 'model', 'status'],
-  registers: [register],
-});
+import {
+  registry,
+  spendTodayGauge,
+  poolSpendTodayGauge,
+  poolTokensTodayGauge,
+} from '../metrics.js';
 
 const keyHealthGauge = new client.Gauge({
   name: 'keygate_key_success_rate_percent',
   help: 'Rolling success rate percent per API key',
   labelNames: ['key_id', 'provider'],
-  registers: [register],
+  registers: [registry],
 });
 
 const circuitStateGauge = new client.Gauge({
   name: 'keygate_circuit_breaker_state',
   help: 'Circuit breaker state (0 = CLOSED, 1 = HALF_OPEN, 2 = OPEN)',
   labelNames: ['key_id', 'provider'],
-  registers: [register],
+  registers: [registry],
 });
 
 export const metricsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -50,8 +44,17 @@ export const metricsRoutes: FastifyPluginAsync = async (fastify) => {
       );
     }
 
-    const metricsStr = await register.metrics();
-    return reply.header('Content-Type', register.contentType).send(metricsStr);
+    // Spend gauges are derived from request_logs so they survive a process restart.
+    spendTodayGauge.set(RequestLogRepo.getSpendTodayTotal());
+    poolSpendTodayGauge.reset();
+    poolTokensTodayGauge.reset();
+    for (const row of RequestLogRepo.getPoolUsageTodayAll()) {
+      poolSpendTodayGauge.set({ pool: row.pool }, row.spend);
+      poolTokensTodayGauge.set({ pool: row.pool }, row.tokens);
+    }
+
+    const metricsStr = await registry.metrics();
+    return reply.header('Content-Type', registry.contentType).send(metricsStr);
   });
 
   // Management UI Dashboard stats
@@ -84,6 +87,16 @@ export const metricsRoutes: FastifyPluginAsync = async (fastify) => {
       ? Math.round((summary.successRequests / summary.totalRequests) * 100)
       : 100;
 
+    const budgetedKeys = keys
+      .filter((k) => k.daily_budget_cap > 0)
+      .map((k) => ({
+        id: k.id,
+        name: k.key_name,
+        provider: k.provider_id,
+        daily_budget_cap: k.daily_budget_cap,
+        spend_today: RequestLogRepo.getSpendByKeyToday(k.id),
+      }));
+
     return reply.send({
       totalRequests: summary.totalRequests,
       successRequests: summary.successRequests,
@@ -97,6 +110,9 @@ export const metricsRoutes: FastifyPluginAsync = async (fastify) => {
       totalKeys: keys.length,
       activeKeys: keys.filter((k) => k.is_active).length,
       totalProviders: providers.length,
+      spendToday: RequestLogRepo.getSpendTodayTotal(),
+      poolUsageToday: RequestLogRepo.getPoolUsageTodayAll(),
+      budgetedKeys,
       circuits: {
         closed: closedCircuits,
         halfOpen: halfOpenCircuits,

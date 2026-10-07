@@ -48,6 +48,44 @@ export interface ModelAlias {
   hedged_delay_ms: number;
   timeout_ms: number;
   is_active: number | boolean;
+  description: string | null;
+  endpoint_kind: EndpointKind;
+  daily_token_cap: number;
+  daily_spend_cap: number;
+}
+
+/** Surfaces a pool is expected to serve; only a routing hint, never a restriction. */
+export type EndpointKind =
+  | 'chat'
+  | 'responses'
+  | 'completions'
+  | 'embeddings'
+  | 'images'
+  | 'audio'
+  | 'moderations'
+  | 'batches'
+  | 'files';
+
+export const ENDPOINT_KINDS: EndpointKind[] = [
+  'chat',
+  'responses',
+  'completions',
+  'embeddings',
+  'images',
+  'audio',
+  'moderations',
+  'batches',
+  'files',
+];
+
+export interface ModelPricing {
+  id: string;
+  provider_id: string;
+  model: string;
+  input_per_mtok: number;
+  output_per_mtok: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface GatewayKey {
@@ -81,6 +119,40 @@ export interface RequestLog {
   request_snippet: string | null;
   response_snippet: string | null;
   created_at: string;
+  endpoint: string | null;
+  cost: number;
+  pool_name: string | null;
+}
+
+export interface ProviderTestResult {
+  success: boolean;
+  statusCode?: number;
+  latencyMs?: number;
+  preparedRequest?: {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    body?: unknown;
+  };
+  rawResponse?: unknown;
+  mappedResponse?: unknown;
+  mappingError?: string | null;
+  error?: string;
+}
+
+export interface PoolUsageToday {
+  pool: string;
+  tokens: number;
+  spend: number;
+  requests: number;
+}
+
+export interface BudgetedKey {
+  id: string;
+  name: string;
+  provider: string;
+  daily_budget_cap: number;
+  spend_today: number;
 }
 
 export interface DashboardStats {
@@ -96,6 +168,9 @@ export interface DashboardStats {
   totalKeys: number;
   activeKeys: number;
   totalProviders: number;
+  spendToday?: number;
+  poolUsageToday?: PoolUsageToday[];
+  budgetedKeys?: BudgetedKey[];
   circuits: {
     closed: number;
     halfOpen: number;

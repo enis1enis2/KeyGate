@@ -3,13 +3,13 @@ import path from 'path';
 import yaml from 'yaml';
 import { ProviderRepo, ModelAliasRepo, GatewayKeyRepo } from './index.js';
 import { generateGatewayToken } from '../crypto.js';
+import { errorMessage } from '../errors.js';
 import type { ProviderSpec } from '../types/index.js';
 
 export function seedInitialData(): { defaultGatewayToken?: string } {
   let defaultGatewayToken: string | undefined;
 
-  // 1. Seed providers from ../providers/*.yaml if table is empty
-  const existingProviders = ProviderRepo.getAll();
+  // 1. Seed providers from ../providers/*.yaml
   const providersDir = path.resolve(process.cwd(), '..', 'providers');
 
   if (fs.existsSync(providersDir)) {
@@ -28,8 +28,8 @@ export function seedInitialData(): { defaultGatewayToken?: string } {
             spec_yaml: yamlContent,
           });
         }
-      } catch (err: any) {
-        console.error(`Failed to seed provider from ${file}:`, err.message);
+      } catch (err) {
+        console.error(`Failed to seed provider from ${file}:`, errorMessage(err));
       }
     }
   }
@@ -71,7 +71,7 @@ export function seedInitialData(): { defaultGatewayToken?: string } {
     const { rawToken, tokenHash, tokenPrefix, tokenSuffix } = generateGatewayToken('kg-live');
     GatewayKeyRepo.create({
       id: 'gwk-default',
-      name: 'Default n8n / Master Key',
+      name: 'Default Gateway Key',
       token_hash: tokenHash,
       token_prefix: tokenPrefix,
       token_suffix: tokenSuffix,
@@ -84,7 +84,7 @@ export function seedInitialData(): { defaultGatewayToken?: string } {
     console.log(`\n========================================================`);
     console.log(`[KeyGate] Generated Initial Gateway Bearer Token:`);
     console.log(`  Token: ${rawToken}`);
-    console.log(`  Use this Bearer token in n8n or OpenAI client.`);
+    console.log(`  Use this Bearer token in any OpenAI-compatible client.`);
     console.log(`========================================================\n`);
   }
 

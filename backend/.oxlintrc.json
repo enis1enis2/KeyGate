@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc"],
+  "rules": {
+    "no-empty": ["error", { "allowEmptyCatch": false }],
+    "typescript/no-explicit-any": "error"
+  },
+  "ignorePatterns": ["dist", "node_modules", "data", "public"]
+}

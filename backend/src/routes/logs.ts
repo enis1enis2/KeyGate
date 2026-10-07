@@ -8,6 +8,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       status?: string;
       provider_id?: string;
       model?: string;
+      endpoint?: string;
     };
 
     const limit = query.limit ? parseInt(query.limit, 10) : 100;
@@ -15,6 +16,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       status: query.status,
       provider_id: query.provider_id,
       model: query.model,
+      endpoint: query.endpoint,
     });
 
     return reply.send(logs);

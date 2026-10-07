@@ -7,7 +7,8 @@ import {
   GitFork, 
   Lock, 
   FileText,
-  Radio
+  Radio,
+  DollarSign
 } from 'lucide-react';
 import type { DashboardStats } from '../types';
 
@@ -22,7 +23,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, stats }
     { id: 'dashboard', label: 'Dashboard', icon: Activity },
     { id: 'providers', label: 'Providers & Wizard', icon: Server },
     { id: 'keys', label: 'Upstream Keys', icon: Key },
-    { id: 'routing', label: 'Routing & Aliases', icon: GitFork },
+    { id: 'routing', label: 'AI Pools', icon: GitFork },
+    { id: 'pricing', label: 'Model Pricing', icon: DollarSign },
     { id: 'gateway', label: 'Gateway Keys', icon: Lock },
     { id: 'logs', label: 'Request Logs', icon: FileText },
   ];

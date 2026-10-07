@@ -5,30 +5,36 @@ import {
   Trash2, 
   Copy, 
   Check, 
-  Power, 
   ShieldCheck, 
-  ExternalLink,
   BookOpen
 } from 'lucide-react';
-import type { GatewayKey } from '../types';
-import { createGatewayKey, revokeGatewayKey, deleteGatewayKey } from '../api';
+import type { GatewayKey, ModelAlias } from '../types';
+import { createGatewayKey, revokeGatewayKey, deleteGatewayKey, errorMessage } from '../api';
 
 interface GatewayKeysTabProps {
   gatewayKeys: GatewayKey[];
+  aliases: ModelAlias[];
   onRefresh: () => void;
 }
 
-export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onRefresh }) => {
+export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, aliases, onRefresh }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState('');
   const [rpmLimit, setRpmLimit] = useState(0);
   const [tpmLimit, setTpmLimit] = useState(0);
   const [expiresInDays, setExpiresInDays] = useState(0);
+  const [allowedPools, setAllowedPools] = useState<string[]>([]);
 
   // One-time token reveal modal
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const togglePool = (pool: string) => {
+    setAllowedPools((prev) =>
+      prev.includes(pool) ? prev.filter((p) => p !== pool) : [...prev, pool]
+    );
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +47,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
         rpm_limit: Number(rpmLimit) || 0,
         tpm_limit: Number(tpmLimit) || 0,
         expires_in_days: expiresInDays > 0 ? Number(expiresInDays) : undefined,
+        allowed_aliases: allowedPools.length > 0 ? allowedPools : undefined,
       });
       setNewlyCreatedToken(res.token);
       setShowAddModal(false);
@@ -48,9 +55,10 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
       setRpmLimit(0);
       setTpmLimit(0);
       setExpiresInDays(0);
+      setAllowedPools([]);
       onRefresh();
-    } catch (err: any) {
-      alert(`Error creating token: ${err.message}`);
+    } catch (err) {
+      alert(`Error creating token: ${errorMessage(err)}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -80,7 +88,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-800">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Gateway Bearer Keys</h1>
-          <p className="text-sm text-slate-400">Issue authorized Bearer tokens for n8n workflows, agents, and external applications</p>
+          <p className="text-sm text-slate-400">Issue authorized Bearer tokens for agents, apps, and any OpenAI-compatible client</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
@@ -91,22 +99,22 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
         </button>
       </div>
 
-      {/* n8n Quick Integration Banner */}
+      {/* Quick Integration Banner */}
       <div className="bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-slate-900 border border-indigo-500/30 rounded-xl p-5 shadow-lg space-y-3">
         <div className="flex items-center gap-2 text-indigo-400">
           <BookOpen className="w-5 h-5" />
           <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-            Quick Integration: Connect n8n in 30 Seconds
+            Quick Integration: Point Any OpenAI Client Here
           </h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
           <div className="bg-slate-950/70 p-3 rounded-lg border border-slate-800 space-y-1">
-            <span className="text-slate-500 block uppercase text-[10px]">OpenAI Credential in n8n:</span>
+            <span className="text-slate-500 block uppercase text-[10px]">OpenAI SDK / LangChain / n8n:</span>
             <div className="text-slate-300">API Key: <span className="text-indigo-400">Your Gateway Key (kg-live-...)</span></div>
             <div className="text-slate-300">Base URL: <span className="text-emerald-400">http://keygate:3000/v1</span></div>
           </div>
           <div className="bg-slate-950/70 p-3 rounded-lg border border-slate-800 space-y-1">
-            <span className="text-slate-500 block uppercase text-[10px]">Generic Passthrough HTTP Node:</span>
+            <span className="text-slate-500 block uppercase text-[10px]">Generic Passthrough HTTP:</span>
             <div className="text-slate-300">URL: <span className="text-cyan-400">http://keygate:3000/v1/passthrough/{"{provider}"}/*</span></div>
             <div className="text-slate-300">Header: <span className="text-slate-400">Authorization: Bearer kg-live-...</span></div>
           </div>
@@ -130,6 +138,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
                 <th className="py-3 px-4">Masked Token</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Rate Limits</th>
+                <th className="py-3 px-4">Pool Scope</th>
                 <th className="py-3 px-4">Created</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -154,6 +163,22 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
                   </td>
                   <td className="py-3 px-4 text-slate-400">
                     RPM: {k.rpm_limit > 0 ? k.rpm_limit : '∞'} | TPM: {k.tpm_limit > 0 ? k.tpm_limit : '∞'}
+                  </td>
+                  <td className="py-3 px-4">
+                    {k.allowed_aliases.includes('*') || k.allowed_aliases.length === 0 ? (
+                      <span className="text-slate-500">All pools</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {k.allowed_aliases.map((p) => (
+                          <span
+                            key={p}
+                            className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-semibold"
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 px-4 text-slate-500">
                     {new Date(k.created_at).toLocaleDateString()}
@@ -193,7 +218,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
               <h2 className="text-base font-bold text-white">Save Your Gateway Token Now</h2>
             </div>
             <p className="text-xs text-slate-300">
-              This is the only time this token will ever be displayed in plain text. Please copy it and save it in your n8n OpenAI credential or password vault.
+              This is the only time this token will ever be displayed in plain text. Please copy it and save it in your OpenAI credential or password vault.
             </p>
 
             <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex items-center justify-between font-mono text-xs text-emerald-400 break-all">
@@ -237,7 +262,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. n8n Production AI Agent"
+                  placeholder="e.g. Production AI Agent"
                   required
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
                 />
@@ -264,6 +289,52 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, onR
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">TPM Limit:</label>
+                <input
+                  type="number"
+                  value={tpmLimit}
+                  onChange={(e) => setTpmLimit(parseInt(e.target.value, 10) || 0)}
+                  placeholder="0 = unlimited"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Pool Scope {allowedPools.length > 0 ? `(${allowedPools.length} selected)` : ''}
+                </label>
+                <div className="max-h-40 overflow-y-auto border border-slate-800 rounded-lg p-2 space-y-1 bg-slate-950">
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allowedPools.length === 0}
+                      onChange={() => setAllowedPools([])}
+                      className="rounded border-slate-800 bg-slate-950 text-indigo-600 focus:ring-0"
+                    />
+                    All pools (unrestricted)
+                  </label>
+                  {aliases.length === 0 ? (
+                    <div className="text-[11px] text-slate-500 px-1 py-1">No pools defined yet — create one under AI Pools.</div>
+                  ) : (
+                    aliases.map((a) => (
+                      <label key={a.id} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allowedPools.includes(a.alias_name)}
+                          onChange={() => togglePool(a.alias_name)}
+                          className="rounded border-slate-800 bg-slate-950 text-indigo-600 focus:ring-0"
+                        />
+                        <span className="font-mono">{a.alias_name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  Requests for a pool outside this scope are rejected with <span className="font-mono text-rose-400">403 model_not_allowed</span>
+                </span>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
