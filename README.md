@@ -32,7 +32,7 @@
 
 1. Clone or download the repository:
    ```bash
-   git clone <repo-url> keygate
+   git clone https://github.com/enis1enis2/KeyGate.git keygate
    cd keygate
    ```
 
