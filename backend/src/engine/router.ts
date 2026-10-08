@@ -110,14 +110,12 @@ export class SmartRouter {
         latencyMs,
         statusCode: isTimeout ? 504 : 500,
       };
-    } finally {
-      clearTimeout(timeoutTimer);
     }
 
     const latencyMs = Date.now() - startTime;
     const statusCode = upstreamRes.status;
 
-    // Handle HTTP error responses
+    // Handle HTTP error responses (timer still armed so a stalled error body cannot hang us).
     if (!upstreamRes.ok) {
       let rawErrorBody: unknown = null;
       try {
@@ -130,6 +128,7 @@ export class SmartRouter {
       } catch {
         rawErrorBody = null;
       }
+      clearTimeout(timeoutTimer);
 
       // Extract response headers as record
       const respHeaders: Record<string, string> = {};
@@ -155,6 +154,9 @@ export class SmartRouter {
 
     // Success response: streaming or non-streaming
     if (prepared.stream) {
+      // As soon as the stream is handed to the client it can no longer be retried, so the
+      // timeout only guards the headers phase here and the body is drained as-is.
+      clearTimeout(timeoutTimer);
       return {
         streamResponse: upstreamRes,
         latencyMs,
@@ -164,7 +166,31 @@ export class SmartRouter {
       };
     }
 
-    const rawJson = await upstreamRes.json();
+    // DECISION: The configured timeout stays armed across the buffered JSON body read so a
+    // provider that sends headers but stalls its body fails over within `timeout_ms` instead
+    // of waiting for undici's ~5 minute default. Nothing has been sent to the client, so the
+    // whole attempt is retried against the next key with the identical request body (messages
+    // intact), preserving conversation context across failover.
+    let rawJson: unknown;
+    try {
+      rawJson = await upstreamRes.json();
+    } catch (err) {
+      clearTimeout(timeoutTimer);
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      const classified = classifyError(
+        isTimeout ? 504 : 500,
+        {},
+        { message: isTimeout ? 'Upstream timed out while reading the response body' : toErrorInfo(err).message || 'Failed to read upstream response body' },
+        spec.error_classification
+      );
+      throw {
+        classified,
+        latencyMs,
+        statusCode: isTimeout ? 504 : 500,
+      };
+    }
+    clearTimeout(timeoutTimer);
+
     const mappedResponse = await TemplateMapper.mapResponse(spec, rawJson, req.model);
 
     const promptTokens = mappedResponse.usage?.prompt_tokens || 0;

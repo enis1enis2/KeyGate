@@ -11,7 +11,8 @@ import type {
   GatewayKeyRecord, 
   RequestLogRecord,
   ModelPricingRecord,
-  StickyRouteRecord
+  StickyRouteRecord,
+  ChatHistoryRecord
 } from '../types/index.js';
 
 interface ProviderRow {
@@ -510,6 +511,110 @@ export const RequestLogRepo = {
       totalPromptTokens: row?.totalPromptTokens || 0,
       totalCompletionTokens: row?.totalCompletionTokens || 0,
     };
+  }
+};
+
+// ----------------- CHAT HISTORY REPOSITORY -----------------
+// Only message text is retained (never request bodies/headers), so history is safe to render.
+const CHAT_HISTORY_CAP_PER_POOL = 200;
+
+export const ChatHistoryRepo = {
+  add(entry: {
+    id: string;
+    trace_id: string;
+    pool_name: string;
+    provider_id: string;
+    key_id: string;
+    model: string;
+    role: 'user' | 'assistant';
+    content: string | null;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    is_stream?: boolean;
+  }): void {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO chat_history (
+        id, trace_id, pool_name, provider_id, key_id, model, role, content,
+        prompt_tokens, completion_tokens, is_stream, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      entry.id,
+      entry.trace_id,
+      entry.pool_name,
+      entry.provider_id,
+      entry.key_id,
+      entry.model,
+      entry.role,
+      entry.content || null,
+      entry.prompt_tokens || 0,
+      entry.completion_tokens || 0,
+      entry.is_stream ? 1 : 0,
+      new Date().toISOString()
+    );
+    this.capPool(entry.pool_name);
+  },
+
+  // Keep the most recent N exchanges per pool so a chatty pool cannot grow unbounded.
+  capPool(poolName: string, max: number = CHAT_HISTORY_CAP_PER_POOL): void {
+    const db = getDb();
+    db.prepare(`
+      DELETE FROM chat_history
+      WHERE pool_name = ? AND id NOT IN (
+        SELECT id FROM chat_history
+        WHERE pool_name = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+      )
+    `).run(poolName, poolName, max);
+  },
+
+  getByPool(poolName: string | undefined, limit: number = 100): ChatHistoryRecord[] {
+    const db = getDb();
+    if (poolName) {
+      return db
+        .prepare(`SELECT * FROM chat_history WHERE pool_name = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
+        .all(poolName, limit) as ChatHistoryRecord[];
+    }
+    return db
+      .prepare(`SELECT * FROM chat_history ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(limit) as ChatHistoryRecord[];
+  },
+
+  getPools(): Array<{ pool_name: string; count: number }> {
+    const db = getDb();
+    return db.prepare(`
+      SELECT pool_name, COUNT(*) AS count
+      FROM chat_history
+      GROUP BY pool_name
+      ORDER BY pool_name ASC
+    `).all() as Array<{ pool_name: string; count: number }>;
+  },
+
+  getByTrace(traceId: string): ChatHistoryRecord[] {
+    const db = getDb();
+    return db.prepare(`SELECT * FROM chat_history WHERE trace_id = ? ORDER BY created_at ASC, role ASC`).all(traceId) as ChatHistoryRecord[];
+  },
+
+  deleteById(id: string): boolean {
+    const db = getDb();
+    const res = db.prepare(`DELETE FROM chat_history WHERE id = ?`).run(id);
+    return res.changes > 0;
+  },
+
+  deleteByPool(poolName: string): number {
+    const db = getDb();
+    return db.prepare(`DELETE FROM chat_history WHERE pool_name = ?`).run(poolName).changes;
+  },
+
+  clearAll(): number {
+    const db = getDb();
+    return db.prepare(`DELETE FROM chat_history`).run().changes;
+  },
+
+  purgeOlderThan(retentionDays: number): number {
+    const db = getDb();
+    return db.prepare(`DELETE FROM chat_history WHERE created_at < datetime('now', '-' || ? || ' days')`).run(retentionDays).changes;
   }
 };
 

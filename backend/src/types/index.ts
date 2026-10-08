@@ -4,6 +4,7 @@ export type ErrorClassificationType =
   | 'rate_limit'
   | 'auth_fail'
   | 'quota_exhausted'
+  | 'timeout'
   | 'retryable'
   | 'fatal';
 
@@ -100,6 +101,8 @@ export interface ProviderSpec {
   endpoint_paths: EndpointPaths;
   http_method: 'POST' | 'GET' | string;
   auth: ProviderAuth;
+  /** Extra headers sent verbatim on every upstream request (e.g. anthropic-version). */
+  static_headers?: Record<string, string>;
   request_mapping?: MappingConfig;
   response_mapping?: MappingConfig;
   streaming?: {
@@ -231,6 +234,23 @@ export interface StickyRouteRecord {
   endpoint: string;
   provider_id: string;
   key_id: string;
+  created_at: string;
+}
+
+// A single prompt or answer captured from a gateway chat completion, grouped by trace_id.
+// Only message text is stored (no request headers/body plumbing), one row per role.
+export interface ChatHistoryRecord {
+  id: string;
+  trace_id: string;
+  pool_name: string;
+  provider_id: string;
+  key_id: string;
+  model: string;
+  role: 'user' | 'assistant';
+  content: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  is_stream: number;
   created_at: string;
 }
 

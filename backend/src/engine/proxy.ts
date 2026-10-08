@@ -440,6 +440,7 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
   for (const attempt of attempts) {
     let upstream: Response;
     let latencyMs: number;
+    let stopTimer: () => void = () => undefined;
 
     try {
       const dispatched = await dispatchAttempt({
@@ -458,6 +459,7 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
       });
       upstream = dispatched.upstream;
       latencyMs = dispatched.latencyMs;
+      stopTimer = dispatched.stopTimer;
     } catch (err) {
       const info = toErrorInfo(err);
       const classified: ClassifiedError = info.classified ?? {
@@ -497,17 +499,57 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
     const mode: 'stream' | 'binary' | 'json' = isEventStream ? 'stream' : opts.binary ? 'binary' : 'json';
 
     if (mode === 'json') {
-      let text: string;
+      let text: string | null = null;
+      let bodyFailure: ClassifiedError | null = null;
       try {
         text = await upstream.text();
       } catch (err) {
-        lastError = err;
+        // DECISION: The configured timeout stays armed for the buffered body read so a provider
+        // that sends headers but stalls its body fails over within `timeout_ms` instead of
+        // waiting for undici's ~5 minute default. Nothing has been committed to the client yet,
+        // so the whole attempt can be retried against the next key with the full request body.
+        const info = toErrorInfo(err);
+        const isTimeout = err instanceof Error && err.name === 'AbortError';
+        bodyFailure = classifyError(
+          isTimeout ? 504 : 500,
+          {},
+          { message: isTimeout ? 'Upstream timed out while reading the response body' : info.message || 'Failed to read upstream response body' },
+          attempt.spec.error_classification
+        );
+      } finally {
+        stopTimer();
+      }
+
+      if (bodyFailure) {
+        cb.recordCallResult(
+          attempt.key.id,
+          false,
+          latencyMs,
+          0,
+          0,
+          bodyFailure.errorType,
+          bodyFailure.message,
+          bodyFailure.retryAfterMs
+        );
+        writeLog({
+          attempt,
+          status: 'error',
+          statusCode: bodyFailure.statusCode,
+          errorType: bodyFailure.errorType,
+          latencyMs,
+          promptTokens: 0,
+          completionTokens: 0,
+          cost: 0,
+          responseSnippet: bodyFailure.message,
+          isStream: wantsStream,
+        });
+        lastError = { ...bodyFailure, latencyMs };
         continue;
       }
 
       let parsed: unknown = undefined;
       try {
-        parsed = JSON.parse(text);
+        parsed = JSON.parse(text!);
       } catch {
         parsed = undefined;
       }
@@ -529,7 +571,7 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
         promptTokens,
         completionTokens,
         cost,
-        responseSnippet: text.slice(0, 300),
+        responseSnippet: text!.slice(0, 300),
         isStream: false,
       });
 
@@ -554,11 +596,14 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
       reply.header('x-keygate-model', attempt.model);
 
       if (parsed !== undefined) return reply.send(parsed);
-      return reply.send(text);
+      return reply.send(text!);
     }
 
     // Stream / binary modes write straight to the socket, so the failover chain ends here.
+    // The timeout only protects the headers phase for these modes: once the client is
+    // committed, a partial stream cannot be un-sent, so the body is drained as-is.
     clientCommitted = true;
+    stopTimer();
     cb.recordCallResult(attempt.key.id, true, latencyMs, 0, 0);
     writeLog({
       attempt,
@@ -698,9 +743,11 @@ interface DispatchArgs {
 // Build one upstream attempt: decrypt the key, apply provider auth, rewrite the pool model,
 // then fetch with a hard timeout. Throws a structured {classified, statusCode, latencyMs}
 // object on any failure so the caller can classify, meter the breaker and fail over.
+// The timeout stays armed after headers arrive so callers can also bound buffered body reads;
+// once the caller is done buffering (or decides to stream/binary-pipe), it calls `stopTimer`.
 async function dispatchAttempt(
   args: DispatchArgs
-): Promise<{ upstream: Response; latencyMs: number }> {
+): Promise<{ upstream: Response; latencyMs: number; stopTimer: () => void }> {
   const { attempt } = args;
   const decryptedKey = decryptSecret(
     attempt.key.encrypted_key,
@@ -711,7 +758,10 @@ async function dispatchAttempt(
   const authType = attempt.spec.auth.type;
   const authTemplate = attempt.spec.auth.template.replace(/\{\{\s*key\s*\}\}/g, decryptedKey);
   let url = args.url;
-  const headers: Record<string, string> = { ...args.headers };
+  const headers: Record<string, string> = {
+    ...(attempt.spec.static_headers || {}),
+    ...args.headers,
+  };
   let body: BodyInit | undefined;
 
   if (args.entries) {
@@ -771,6 +821,7 @@ async function dispatchAttempt(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), args.timeoutMs);
   const startedAt = Date.now();
+  const clearTimer = (): void => clearTimeout(timer);
   let upstream: Response;
 
   try {
@@ -781,6 +832,7 @@ async function dispatchAttempt(
       signal: controller.signal,
     });
   } catch (err) {
+    clearTimer();
     const latencyMs = Date.now() - startedAt;
     const info = toErrorInfo(err);
     const isTimeout = err instanceof Error && err.name === 'AbortError';
@@ -791,13 +843,13 @@ async function dispatchAttempt(
       attempt.spec.error_classification
     );
     throw { classified, latencyMs, statusCode: isTimeout ? 504 : 500 };
-  } finally {
-    clearTimeout(timer);
   }
 
   const latencyMs = Date.now() - startedAt;
 
   if (!upstream.ok) {
+    // Error bodies are read while the timeout is still armed, so a stalled error response
+    // cannot hang the request either. The error itself is classified by its status below.
     let rawErrorBody: unknown = null;
     try {
       const text = await upstream.text();
@@ -809,6 +861,7 @@ async function dispatchAttempt(
     } catch {
       rawErrorBody = null;
     }
+    clearTimer();
 
     const responseHeaders: Record<string, string> = {};
     upstream.headers.forEach((value, name) => {
@@ -826,7 +879,9 @@ async function dispatchAttempt(
     throw { classified, latencyMs, statusCode: upstream.status, rawBody: rawErrorBody };
   }
 
-  return { upstream, latencyMs };
+  // Success: the timer is released to the caller so it can keep it armed across a buffered
+  // body read (JSON mode) or disarm it immediately (stream/binary pipe modes).
+  return { upstream, latencyMs, stopTimer: clearTimer };
 }
 
 // Serialize a routing failure into the OpenAI error envelope. Routes catch everything that

@@ -20,9 +20,10 @@ import { aliasesRoutes } from './routes/aliases.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { gatewayKeysRoutes } from './routes/gateway-keys.js';
 import { logsRoutes } from './routes/logs.js';
+import { historyRoutes } from './routes/history.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { healthRoutes } from './routes/health.js';
-import { RequestLogRepo, StickyRouteRepo } from './db/index.js';
+import { RequestLogRepo, StickyRouteRepo, ChatHistoryRepo } from './db/index.js';
 
 export async function buildServer() {
   const fastify = Fastify({
@@ -90,6 +91,7 @@ export async function buildServer() {
   await fastify.register(pricingRoutes);
   await fastify.register(gatewayKeysRoutes);
   await fastify.register(logsRoutes);
+  await fastify.register(historyRoutes);
 
   // DECISION: Serve built frontend SPA statically from public/ with SPA HTML fallback for seamless single-binary deployment.
   const publicDir = path.resolve(process.cwd(), 'public');
@@ -122,6 +124,10 @@ export function startRetentionCron(): NodeJS.Timeout {
       const unpinned = StickyRouteRepo.purgeOlderThan(CONFIG.metricsRetentionDays);
       if (unpinned > 0) {
         console.log(`[Retention] Purged ${unpinned} expired upstream resource routes.`);
+      }
+      const oldHistory = ChatHistoryRepo.purgeOlderThan(CONFIG.metricsRetentionDays);
+      if (oldHistory > 0) {
+        console.log(`[Retention] Purged ${oldHistory} chat history entries older than ${CONFIG.metricsRetentionDays} days.`);
       }
     } catch (err) {
       console.error('[Retention] Failed to purge old logs:', err instanceof Error ? err.message : err);

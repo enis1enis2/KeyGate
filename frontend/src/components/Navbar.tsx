@@ -8,7 +8,9 @@ import {
   Lock, 
   FileText,
   Radio,
-  DollarSign
+  DollarSign,
+  MessageSquare,
+  History
 } from 'lucide-react';
 import type { DashboardStats } from '../types';
 
@@ -26,6 +28,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, stats }
     { id: 'routing', label: 'AI Pools', icon: GitFork },
     { id: 'pricing', label: 'Model Pricing', icon: DollarSign },
     { id: 'gateway', label: 'Gateway Keys', icon: Lock },
+    { id: 'playground', label: 'Playground', icon: MessageSquare },
+    { id: 'history', label: 'History', icon: History },
     { id: 'logs', label: 'Request Logs', icon: FileText },
   ];
 

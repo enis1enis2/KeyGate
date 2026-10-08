@@ -7,6 +7,8 @@ import { KeysTab } from './components/KeysTab';
 import { RoutingTab } from './components/RoutingTab';
 import { PricingTab } from './components/PricingTab';
 import { GatewayKeysTab } from './components/GatewayKeysTab';
+import { PlaygroundTab } from './components/PlaygroundTab';
+import { HistoryTab } from './components/HistoryTab';
 import { LogsTab } from './components/LogsTab';
 
 import { 
@@ -154,6 +156,18 @@ export function App() {
                 gatewayKeys={gatewayKeys} 
                 aliases={aliases}
                 onRefresh={loadData} 
+              />
+            )}
+
+            {activeTab === 'playground' && (
+              <PlaygroundTab 
+                aliases={aliases} 
+              />
+            )}
+
+            {activeTab === 'history' && (
+              <HistoryTab 
+                poolNames={aliases.map((a) => a.alias_name)} 
               />
             )}
 

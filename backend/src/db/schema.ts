@@ -123,4 +123,24 @@ CREATE TABLE IF NOT EXISTS sticky_routes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sticky_routes_created_at ON sticky_routes(created_at);
+
+-- Per-pool chat history: the prompt/answer pair captured from gateway chat completions,
+-- grouped by trace_id so the UI can render one user+assistant exchange per gateway call.
+CREATE TABLE IF NOT EXISTS chat_history (
+  id TEXT PRIMARY KEY,
+  trace_id TEXT NOT NULL,
+  pool_name TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  is_stream INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_history_pool_created ON chat_history(pool_name, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_history_created ON chat_history(created_at);
 `;

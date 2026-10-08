@@ -110,6 +110,12 @@ export class TemplateMapper {
       'Accept': isStream ? 'text/event-stream, application/json' : 'application/json',
     };
 
+    // DECISION: static_headers are provider-level headers (e.g. anthropic-version) that ride on
+    // every upstream request unchanged, before auth is applied so auth can still override.
+    if (spec.static_headers) {
+      headers = { ...headers, ...spec.static_headers };
+    }
+
     // Fast-path: "openai-compatible" preset
     if (spec.preset === 'openai-compatible' || !spec.request_mapping) {
       const payload = {

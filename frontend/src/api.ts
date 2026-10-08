@@ -6,7 +6,11 @@ import type {
   RequestLog, 
   DashboardStats,
   ProviderTestResult,
-  ModelPricing
+  ModelPricing,
+  ChatHistorySet,
+  ProviderPreset,
+  ProviderScanResult,
+  QuickAddResult
 } from './types';
 
 const API_BASE = '';
@@ -126,6 +130,69 @@ export async function testProviderSpec(specYaml: string, testKey: string, prompt
     ...jsonBody({ spec_yaml: specYaml, test_key: testKey, prompt, model }),
   });
   return res.json();
+}
+
+export async function fetchProviderPresets(): Promise<ProviderPreset[]> {
+  const res = await apiFetch('/api/providers/presets');
+  if (!res.ok) throw new Error('Failed to fetch provider presets');
+  return res.json();
+}
+
+export async function scanProvider(data: { preset: string; base_url: string; api_key?: string }): Promise<ProviderScanResult> {
+  const res = await apiFetch('/api/providers/scan', {
+    method: 'POST',
+    ...jsonBody(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to scan provider' }));
+    throw new Error(err.error || 'Failed to scan provider');
+  }
+  return res.json();
+}
+
+export async function quickAddProvider(data: {
+  name: string;
+  preset: string;
+  base_url: string;
+  model: string;
+  api_key?: string;
+  description?: string;
+  pool_name?: string;
+  chat_path?: string;
+  preserveRoot?: boolean;
+  timeout_ms?: number;
+}): Promise<QuickAddResult> {
+  const res = await apiFetch('/api/providers/quick-add', {
+    method: 'POST',
+    ...jsonBody(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to add provider' }));
+    throw new Error(err.error || 'Failed to add provider');
+  }
+  return res.json();
+}
+
+export async function fetchHistory(pool?: string, limit = 300): Promise<ChatHistorySet> {
+  const params = new URLSearchParams();
+  if (pool) params.set('pool', pool);
+  params.set('limit', String(limit));
+  const res = await apiFetch(`/api/history?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch history');
+  return res.json();
+}
+
+export async function deleteHistoryEntry(id: string): Promise<boolean> {
+  const res = await apiFetch(`/api/history/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  return data.success;
+}
+
+export async function clearHistory(pool?: string): Promise<number> {
+  const params = pool ? `?pool=${encodeURIComponent(pool)}` : '';
+  const res = await apiFetch(`/api/history${params}`, { method: 'DELETE' });
+  const data = await res.json();
+  return data.removed;
 }
 
 export async function fetchKeys(): Promise<ApiKeyItem[]> {

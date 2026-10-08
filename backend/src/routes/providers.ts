@@ -1,8 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 import yaml from 'yaml';
-import { ProviderRepo } from '../db/index.js';
+import crypto from 'crypto';
+import { ProviderRepo, ApiKeyRepo, ModelAliasRepo } from '../db/index.js';
 import { parseCurlAndDraftSpec } from '../engine/curl-parser.js';
 import { TemplateMapper } from '../engine/mapper.js';
+import { PROVIDER_PRESETS, buildProviderSpec, getPreset, scanProviderBase } from '../engine/quick-add.js';
+import { encryptSecret, maskKey } from '../crypto.js';
 import type { ProviderSpec, OpenAIChatRequest, OpenAIChatResponse } from '../types/index.js';
 import { errorMessage } from '../errors.js';
 
@@ -11,6 +14,11 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/api/providers', async (request, reply) => {
     const list = ProviderRepo.getAll();
     return reply.send(list);
+  });
+
+  // Quick-add preset catalog (labels, defaults, key requirement) for the wizard UI.
+  fastify.get('/api/providers/presets', async (request, reply) => {
+    return reply.send(PROVIDER_PRESETS);
   });
 
   // Get single provider
@@ -75,6 +83,120 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send(draft);
     } catch (err) {
       return reply.status(400).send({ error: errorMessage(err) });
+    }
+  });
+
+  // DECISION: Quick-Add scanner probes a base URL's model/chat endpoints so the wizard can
+  // auto-assign base_url + chat path and prefill the allowed model list.
+  fastify.post('/api/providers/scan', async (request, reply) => {
+    const body = request.body as { preset?: string; base_url?: string; api_key?: string };
+    if (!body || !body.base_url?.trim()) {
+      return reply.status(400).send({ error: 'Missing base_url parameter.' });
+    }
+
+    try {
+      const result = await scanProviderBase({
+        presetId: body.preset || 'openai',
+        base_url: body.base_url,
+        api_key: body.api_key,
+      });
+      return reply.send({ success: true, ...result });
+    } catch (err) {
+      return reply.status(500).send({ error: errorMessage(err) });
+    }
+  });
+
+  // DECISION: Quick-Add creates provider spec + encrypted upstream key + pool alias in one call.
+  // This is the primary "add a model" flow; the cURL/YAML wizard stays available as the advanced method.
+  fastify.post('/api/providers/quick-add', async (request, reply) => {
+    const body = request.body as {
+      name: string;
+      preset: string;
+      base_url: string;
+      model: string;
+      api_key?: string;
+      description?: string;
+      pool_name?: string;
+      chat_path?: string;
+      preserveRoot?: boolean;
+      timeout_ms?: number;
+    };
+
+    if (!body || !body.name?.trim() || !body.base_url?.trim() || !body.model?.trim()) {
+      return reply.status(400).send({ error: 'Missing name, base_url, or model.' });
+    }
+
+    try {
+      const built = buildProviderSpec({
+        name: body.name.trim(),
+        presetId: body.preset,
+        base_url: body.base_url.trim(),
+        model: body.model.trim(),
+        description: body.description,
+        chat_path: body.chat_path,
+        preserveRoot: body.preserveRoot,
+      });
+
+      ProviderRepo.create({
+        id: built.spec.id,
+        name: built.spec.name,
+        description: built.spec.description,
+        preset: built.spec.preset || 'custom',
+        spec_yaml: built.specYaml,
+      });
+
+      const cleanKey = (body.api_key || '').trim();
+      const presetDef = getPreset(body.preset);
+
+      // DECISION: Cloud presets require a real upstream key and fail fast here rather than
+      // silently saving a provider that can never authenticate. Local servers (Ollama, LM
+      // Studio, llama.cpp, vLLM…) usually need no auth, so an inert placeholder secret is
+      // stored instead — pool routing still has a key to health-check and dispatch on, and
+      // the upstream ignores the bogus Authorization header.
+      if (presetDef?.needsKey && !cleanKey) {
+        return reply.status(400).send({ error: `API key is required for the "${presetDef.label}" preset.` });
+      }
+
+      const secret = cleanKey || 'local-no-auth';
+      const keyId = crypto.randomUUID();
+      const encrypted = encryptSecret(secret);
+      const mask = maskKey(secret);
+      ApiKeyRepo.create({
+        id: keyId,
+        provider_id: built.spec.id,
+        key_name: cleanKey ? `${built.spec.name} key` : `${built.spec.name} local (no auth) key`,
+        encrypted_key: encrypted.encrypted,
+        iv: encrypted.iv,
+        tag: encrypted.tag,
+        key_prefix: mask.prefix,
+        key_suffix: mask.suffix,
+      });
+      const maskedKey = cleanKey ? mask.masked : null;
+
+      const aliasName = (body.pool_name || body.model).trim();
+      ModelAliasRepo.upsert({
+        id: crypto.randomUUID(),
+        alias_name: aliasName,
+        strategy: 'weighted-by-health',
+        targets_json: JSON.stringify([
+          { provider_id: built.spec.id, model: body.model.trim(), weight: 100, priority: 1 },
+        ]),
+        description: `Quick-add pool for ${built.spec.name}`,
+        endpoint_kind: 'chat',
+        is_active: true,
+        timeout_ms: body.timeout_ms || 30000,
+      });
+
+      return reply.send({
+        success: true,
+        provider_id: built.spec.id,
+        key_id: keyId,
+        masked_key: maskedKey,
+        alias_name: aliasName,
+        spec_yaml: built.specYaml,
+      });
+    } catch (err) {
+      return reply.status(500).send({ error: errorMessage(err) });
     }
   });
 

@@ -100,6 +100,62 @@ export interface GatewayKey {
   created_at: string;
 }
 
+export interface ChatHistoryEntry {
+  id: string;
+  trace_id: string;
+  pool_name: string;
+  provider_id: string;
+  key_id: string;
+  model: string;
+  role: 'user' | 'assistant';
+  content: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  is_stream: number;
+  created_at: string;
+}
+
+export interface HistoryPoolSummary {
+  pool_name: string;
+  count: number;
+}
+
+export interface ChatHistorySet {
+  entries: ChatHistoryEntry[];
+  pools: HistoryPoolSummary[];
+}
+
+export interface ProviderPreset {
+  id: string;
+  label: string;
+  group: 'cloud' | 'local';
+  defaultBase: string;
+  defaultModel: string;
+  needsKey: boolean;
+  style: 'openai' | 'root' | 'anthropic';
+  chatPath: string;
+  appendV1: boolean;
+}
+
+export interface ProviderScanResult {
+  success: boolean;
+  base_url: string;
+  chat_path: string;
+  models_path: string;
+  models: string[];
+  detected: 'openai' | 'ollama' | 'guess';
+  warnings: string[];
+}
+
+export interface QuickAddResult {
+  success: boolean;
+  provider_id: string;
+  key_id: string | null;
+  masked_key: string | null;
+  alias_name: string;
+  spec_yaml: string;
+}
+
 export interface RequestLog {
   id: string;
   trace_id: string;

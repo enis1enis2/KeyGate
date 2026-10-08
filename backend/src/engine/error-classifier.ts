@@ -99,6 +99,16 @@ export function classifyError(
     };
   }
 
+  // 504 = the gateway gave up waiting on the upstream, either for headers or a stalled body.
+  if (statusCode === 504) {
+    return {
+      errorType: 'timeout',
+      statusCode,
+      message,
+      rawBody: responseBody,
+    };
+  }
+
   if (statusCode >= 500 && statusCode <= 599) {
     return {
       errorType: 'retryable',
