@@ -77,13 +77,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, stats }
           {/* Quick Status Pill */}
           <div className="hidden lg:flex items-center gap-4 text-xs font-mono text-slate-400">
             <div className="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 flex items-center gap-2">
-              <span className="text-slate-500">Active Keys:</span>
+              <span className="text-slate-400">Active Keys:</span>
               <span className="text-emerald-400 font-semibold">{stats?.activeKeys ?? 0}</span>
               <span className="text-slate-600">/</span>
               <span className="text-slate-300">{stats?.totalKeys ?? 0}</span>
             </div>
             <div className="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 flex items-center gap-2">
-              <span className="text-slate-500">24h SR:</span>
+              <span className="text-slate-400">24h SR:</span>
               <span className={`font-semibold ${
                 (stats?.successRate ?? 100) >= 95 ? 'text-emerald-400' : 'text-amber-400'
               }`}>

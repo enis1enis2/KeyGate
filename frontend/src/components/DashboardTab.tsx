@@ -206,7 +206,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, aliases
                         <td className="py-3 px-4 text-right text-slate-300">
                           {u.tokens.toLocaleString()}
                           {tokenCap > 0 && (
-                            <span className={`ml-1 ${u.tokens >= tokenCap ? 'text-rose-400' : 'text-slate-500'}`}>
+                            <span className={`ml-1 ${u.tokens >= tokenCap ? 'text-rose-400' : 'text-slate-400'}`}>
                               / {tokenCap.toLocaleString()}
                             </span>
                           )}
@@ -215,7 +215,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, aliases
                           <span className={spendCap > 0 && u.spend >= spendCap ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
                             ${u.spend.toFixed(4)}
                           </span>
-                          {spendCap > 0 && <span className="text-slate-500"> / ${spendCap}</span>}
+                          {spendCap > 0 && <span className="text-slate-400"> / ${spendCap}</span>}
                         </td>
                       </tr>
                     );
@@ -250,7 +250,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, aliases
                     <tr key={b.id} className="hover:bg-slate-800/30 transition-colors">
                       <td className="py-3 px-4 font-sans">
                         <div className="text-white font-semibold">{b.name}</div>
-                        <div className="text-[10px] text-slate-500">{b.provider}</div>
+                        <div className="text-[10px] text-slate-400">{b.provider}</div>
                       </td>
                       <td className="py-3 px-4 text-right text-rose-400 font-bold">${b.spend_today.toFixed(4)}</td>
                       <td className="py-3 px-4 text-right text-slate-300">${b.daily_budget_cap.toFixed(4)}</td>
@@ -350,7 +350,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, aliases
                             {k.rolling_success_rate}%
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">
+                        <span className="text-[10px] text-slate-400 block mt-0.5">
                           {k.total_calls_window} calls in window
                         </span>
                       </td>
@@ -375,7 +375,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({ stats, keys, aliases
                             {k.last_error}
                           </span>
                         ) : (
-                          <span className="text-slate-500">Healthy</span>
+                          <span className="text-slate-400">Healthy</span>
                         )}
                       </td>
 

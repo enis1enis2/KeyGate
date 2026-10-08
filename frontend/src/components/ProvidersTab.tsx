@@ -356,7 +356,7 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
 
             <div className="md:col-span-2">
               <label className="block text-[11px] text-slate-400 mb-1">
-                API Key {selectedPresetDef?.needsKey ? <span className="text-rose-400">(required for {selectedPresetDef?.label})</span> : <span className="text-slate-500">(optional for local servers)</span>}:
+                API Key {selectedPresetDef?.needsKey ? <span className="text-rose-400">(required for {selectedPresetDef?.label})</span> : <span className="text-slate-400">(optional for local servers)</span>}:
               </label>
               <input
                 type="password"
@@ -517,8 +517,9 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
                         e.stopPropagation();
                         handleDelete(p.id);
                       }}
-                      className="text-slate-500 hover:text-rose-400 p-1 rounded transition-colors"
-                      title="Delete Provider"
+                      className="text-slate-400 hover:text-rose-400 p-1.5 rounded transition-colors"
+                      title="Delete provider"
+                      aria-label={`Delete provider ${p.name}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -563,7 +564,9 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
               value={specYaml}
               onChange={(e) => setSpecYaml(e.target.value)}
               rows={16}
-              className="w-full bg-slate-950 text-slate-200 border border-slate-800 rounded-lg p-3 text-xs font-mono leading-relaxed focus:border-indigo-500 focus:outline-none"
+              aria-label="Provider YAML spec"
+              placeholder="# Paste or edit the provider YAML specification here"
+              className="w-full bg-slate-950 text-slate-200 border border-slate-800 rounded-lg p-3 text-xs font-mono leading-relaxed focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
               spellCheck={false}
             />
 
@@ -574,30 +577,32 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
                   <Play className="w-3.5 h-3.5 text-emerald-400" />
                   Live Spec Tester
                 </div>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[11px] text-slate-400">
                   Tests request mapping, live upstream call, and OpenAI response translation
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">Test Upstream API Key:</label>
+                  <label htmlFor="livedata-test-key" className="block text-[11px] text-slate-400 mb-1">Test Upstream API Key:</label>
                   <input
+                    id="livedata-test-key"
                     type="password"
                     value={testKey}
                     onChange={(e) => setTestKey(e.target.value)}
                     placeholder="Paste temporary test key"
-                    className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">Model (optional override):</label>
+                  <label htmlFor="livedata-test-model" className="block text-[11px] text-slate-400 mb-1">Model (optional override):</label>
                   <input
+                    id="livedata-test-model"
                     type="text"
                     value={testModel}
                     onChange={(e) => setTestModel(e.target.value)}
                     placeholder="e.g. llama-3.3-70b-versatile"
-                    className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                    className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
                 </div>
                 <div className="flex items-end">
@@ -613,12 +618,13 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
               </div>
 
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Test User Prompt:</label>
+                <label htmlFor="livedata-test-prompt" className="block text-[11px] text-slate-400 mb-1">Test User Prompt:</label>
                 <input
+                  id="livedata-test-prompt"
                   type="text"
                   value={testPrompt}
                   onChange={(e) => setTestPrompt(e.target.value)}
-                  className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
+                  className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
 
@@ -644,7 +650,7 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
 
                   {testResult.preparedRequest && (
                     <div>
-                      <span className="text-[11px] text-slate-500 uppercase block mb-1">1. Prepared Upstream Request:</span>
+                      <span className="text-[11px] text-slate-400 uppercase block mb-1">1. Prepared Upstream Request:</span>
                       <pre className="bg-slate-900 p-2.5 rounded text-indigo-300 text-[11px] overflow-x-auto max-h-40">
                         {JSON.stringify(testResult.preparedRequest, null, 2)}
                       </pre>
@@ -653,7 +659,7 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
 
                   {testResult.rawResponse != null && (
                     <div>
-                      <span className="text-[11px] text-slate-500 uppercase block mb-1">2. Raw Upstream Response:</span>
+                      <span className="text-[11px] text-slate-400 uppercase block mb-1">2. Raw Upstream Response:</span>
                       <pre className="bg-slate-900 p-2.5 rounded text-slate-300 text-[11px] overflow-x-auto max-h-40">
                         {typeof testResult.rawResponse === 'object' ? JSON.stringify(testResult.rawResponse, null, 2) : String(testResult.rawResponse)}
                       </pre>
@@ -662,7 +668,7 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
 
                   {testResult.mappedResponse != null && (
                     <div>
-                      <span className="text-[11px] text-slate-500 uppercase block mb-1 text-emerald-400 font-bold">
+                      <span className="text-[11px] text-slate-400 uppercase block mb-1 text-emerald-400 font-bold">
                         3. Mapped OpenAI Chat Completion Output:
                       </span>
                       <pre className="bg-slate-900 p-2.5 rounded text-emerald-300 text-[11px] overflow-x-auto max-h-48 border border-emerald-500/20">

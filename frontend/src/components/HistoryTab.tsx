@@ -115,6 +115,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
 
         <div className="flex items-center gap-3">
           <select
+            id="history-pool-filter"
+            aria-label="Filter chat history by pool"
             value={selectedPool}
             onChange={(e) => setSelectedPool(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-200 min-w-[160px]"
@@ -168,7 +170,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
                   : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              {p.pool_name} <span className="opacity-60">({p.count})</span>
+              {p.pool_name} <span className="text-slate-400">({p.count})</span>
             </button>
           ))}
         </div>
@@ -190,7 +192,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
           {groups.map((group) => (
             <div key={group.trace_id} className="bg-slate-900/60 rounded-xl border border-slate-800/80 overflow-hidden">
               {/* Trace header */}
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-950/60 border-b border-slate-800/60 text-[10px] font-mono text-slate-500">
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-950/60 border-b border-slate-800/60 text-[10px] font-mono text-slate-400">
                 <div className="flex items-center gap-3 whitespace-nowrap overflow-hidden">
                   <span>{new Date(group.created_at).toLocaleString()}</span>
                   <span className="text-indigo-400 truncate">{group.trace_id.slice(0, 16)}…</span>
@@ -209,7 +211,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
                 </div>
                 <button
                   onClick={() => void handleDeleteTrace(group)}
-                  className="text-slate-500 hover:text-rose-400 transition-colors"
+                  className="text-slate-400 hover:text-rose-400 transition-colors"
                   title="Delete this exchange"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -228,20 +230,20 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-slate-500 italic font-mono">user message not captured</div>
+                  <div className="text-[11px] text-slate-400 italic font-mono">user message not captured</div>
                 )}
 
                 {group.assistant?.content != null ? (
                   <div className="flex justify-start">
                     <div className="max-w-[75%] bg-slate-800 border border-slate-700/60 text-slate-100 rounded-lg rounded-tl-none px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                      <span className="block text-[9px] uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+                      <span className="block text-[9px] uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
                         <Bot className="w-2.5 h-2.5" /> Answer &middot; {group.model}
                       </span>
                       {group.assistant.content}
                     </div>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-slate-500 italic font-mono">assistant answer not captured</div>
+                  <div className="text-[11px] text-slate-400 italic font-mono">assistant answer not captured</div>
                 )}
               </div>
             </div>
@@ -251,7 +253,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
 
       {/* Empty state hint icons */}
       {groups.length > 0 && (
-        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 font-mono">
+        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 font-mono">
           <MessageSquare className="w-3.5 h-3.5" />
           <Braces className="w-3.5 h-3.5" />
           Only message text is retained — headers, raw request bodies and secrets are never stored.

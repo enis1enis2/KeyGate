@@ -109,12 +109,12 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
           <div className="bg-slate-950/70 p-3 rounded-lg border border-slate-800 space-y-1">
-            <span className="text-slate-500 block uppercase text-[10px]">OpenAI SDK / LangChain / n8n:</span>
+            <span className="text-slate-400 block uppercase text-[10px]">OpenAI SDK / LangChain / n8n:</span>
             <div className="text-slate-300">API Key: <span className="text-indigo-400">Your Gateway Key (kg-live-...)</span></div>
             <div className="text-slate-300">Base URL: <span className="text-emerald-400">http://keygate:3000/v1</span></div>
           </div>
           <div className="bg-slate-950/70 p-3 rounded-lg border border-slate-800 space-y-1">
-            <span className="text-slate-500 block uppercase text-[10px]">Generic Passthrough HTTP:</span>
+            <span className="text-slate-400 block uppercase text-[10px]">Generic Passthrough HTTP:</span>
             <div className="text-slate-300">URL: <span className="text-cyan-400">http://keygate:3000/v1/passthrough/{"{provider}"}/*</span></div>
             <div className="text-slate-300">Header: <span className="text-slate-400">Authorization: Bearer kg-live-...</span></div>
           </div>
@@ -166,7 +166,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                   </td>
                   <td className="py-3 px-4">
                     {k.allowed_aliases.includes('*') || k.allowed_aliases.length === 0 ? (
-                      <span className="text-slate-500">All pools</span>
+                      <span className="text-slate-400">All pools</span>
                     ) : (
                       <div className="flex flex-wrap gap-1">
                         {k.allowed_aliases.map((p) => (
@@ -180,7 +180,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                       </div>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-slate-500">
+                  <td className="py-3 px-4 text-slate-400">
                     {new Date(k.created_at).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4 text-right">
@@ -195,7 +195,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                       )}
                       <button
                         onClick={() => handleDelete(k.id)}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 transition-colors"
+                        className="p-1.5 rounded text-slate-400 hover:text-rose-400 transition-colors"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -317,7 +317,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                     All pools (unrestricted)
                   </label>
                   {aliases.length === 0 ? (
-                    <div className="text-[11px] text-slate-500 px-1 py-1">No pools defined yet — create one under AI Pools.</div>
+                    <div className="text-[11px] text-slate-400 px-1 py-1">No pools defined yet — create one under AI Pools.</div>
                   ) : (
                     aliases.map((a) => (
                       <label key={a.id} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -332,7 +332,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                     ))
                   )}
                 </div>
-                <span className="text-[10px] text-slate-500 block mt-1">
+                <span className="text-[10px] text-slate-400 block mt-1">
                   Requests for a pool outside this scope are rejected with <span className="font-mono text-rose-400">403 model_not_allowed</span>
                 </span>
               </div>

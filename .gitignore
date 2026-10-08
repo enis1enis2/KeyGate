@@ -22,6 +22,7 @@ data/
 .vite/
 coverage/
 .oxlintcache
+.playwright-mcp/
 
 # Editors / OS
 .vscode/*

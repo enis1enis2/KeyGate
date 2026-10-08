@@ -71,7 +71,7 @@ export function AdminLogin({ error, onAuthenticated }: AdminLoginProps) {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-xs text-slate-500">
+        <p className="mt-4 text-center text-xs text-slate-400">
           Token is stored in this browser only and sent as a Bearer header.
         </p>
       </div>

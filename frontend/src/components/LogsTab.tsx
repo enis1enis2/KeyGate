@@ -93,7 +93,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
       {/* Filter Bar */}
       <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 flex flex-wrap gap-4 text-xs font-mono">
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-[10px] text-slate-500 uppercase mb-1">Status Filter:</label>
+          <label className="block text-[10px] text-slate-400 uppercase mb-1">Status Filter:</label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -106,7 +106,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
         </div>
 
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-[10px] text-slate-500 uppercase mb-1">Provider:</label>
+          <label className="block text-[10px] text-slate-400 uppercase mb-1">Provider:</label>
           <select
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
@@ -120,7 +120,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
         </div>
 
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-[10px] text-slate-500 uppercase mb-1">Endpoint:</label>
+          <label className="block text-[10px] text-slate-400 uppercase mb-1">Endpoint:</label>
           <select
             value={endpointFilter}
             onChange={(e) => setEndpointFilter(e.target.value)}
@@ -134,7 +134,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
         </div>
 
         <div className="flex-1 min-w-[160px]">
-          <label className="block text-[10px] text-slate-500 uppercase mb-1">Model Search:</label>
+          <label className="block text-[10px] text-slate-400 uppercase mb-1">Model Search:</label>
           <input
             type="text"
             value={modelFilter}
@@ -181,7 +181,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
                     <td className="py-3 px-4 font-semibold text-white whitespace-nowrap">
                       <div>{log.alias_name || log.model}</div>
                       {log.alias_name && log.alias_name !== log.model && (
-                        <div className="text-[10px] text-slate-500">{log.model}</div>
+                        <div className="text-[10px] text-slate-400">{log.model}</div>
                       )}
                     </td>
                     <td className="py-3 px-4 text-indigo-400 whitespace-nowrap">
@@ -242,7 +242,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
                 <h3 className="text-sm font-bold text-white">Trace Inspection</h3>
-                <span className="text-[10px] text-slate-500">{selectedLog.trace_id}</span>
+                <span className="text-[10px] text-slate-400">{selectedLog.trace_id}</span>
               </div>
               <button
                 onClick={() => setSelectedLog(null)}
@@ -266,7 +266,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
 
             {selectedLog.request_snippet && (
               <div>
-                <span className="text-[10px] text-slate-500 uppercase block mb-1">Request Payload Snippet:</span>
+                <span className="text-[10px] text-slate-400 uppercase block mb-1">Request Payload Snippet:</span>
                 <pre className="bg-slate-950 p-2.5 rounded border border-slate-800 text-indigo-300 overflow-x-auto max-h-40">
                   {selectedLog.request_snippet}
                 </pre>
@@ -275,7 +275,7 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
 
             {selectedLog.response_snippet && (
               <div>
-                <span className="text-[10px] text-slate-500 uppercase block mb-1">Response Output / Error Snippet:</span>
+                <span className="text-[10px] text-slate-400 uppercase block mb-1">Response Output / Error Snippet:</span>
                 <pre className="bg-slate-950 p-2.5 rounded border border-slate-800 text-slate-300 overflow-x-auto max-h-40">
                   {selectedLog.response_snippet}
                 </pre>

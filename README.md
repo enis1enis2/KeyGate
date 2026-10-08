@@ -2,8 +2,9 @@
 
 > **Self-hosted, general-purpose AI API gateway: group upstream provider keys into load-balanced AI pools, route around failing ones, meter and cap spend, and expose ONE OpenAI-compatible API (`/v1`) for any client — plus a modern management UI.**
 
-[![Tests](https://img.shields.io/badge/tests-44%20passed-brightgreen.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)]()
+[![CI](https://img.shields.io/github/actions/workflow/status/enis1enis2/KeyGate/ci.yml?branch=main&logo=github)](.github/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-63%20passed-brightgreen)]()
+[![License](https://img.shields.io/github/license/enis1enis2/KeyGate)](LICENSE)
 [![Fastify](https://img.shields.io/badge/Fastify-v5-black.svg)]()
 [![React](https://img.shields.io/badge/React-19-cyan.svg)]()
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)]()
@@ -203,3 +204,15 @@ KeyGate (/v1/chat/completions)
 | `METRICS_RETENTION_DAYS` | `30` | Log/metric retention |
 | `MAX_UPLOAD_BYTES` | `67108864` | Max multipart upload size (bytes) for audio/image/file routes |
 | `DEFAULT_TIMEOUT_MS` | `30000` | Default per-request upstream timeout (pools may override) |
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for
+the development setup, code conventions, and the pull-request process. All
+participants are expected to follow the
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+Found a security issue? **Do not open a public issue** — follow the reporting
+process in [SECURITY.md](SECURITY.md).

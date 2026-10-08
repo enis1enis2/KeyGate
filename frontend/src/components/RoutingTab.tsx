@@ -147,7 +147,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Configured Pools</h2>
           <div className="space-y-2">
             {aliases.length === 0 && (
-              <div className="p-4 rounded-xl border border-dashed border-slate-800 text-xs text-slate-500 font-mono">
+              <div className="p-4 rounded-xl border border-dashed border-slate-800 text-xs text-slate-400 font-mono">
                 No pools yet. Create one to expose a model name to your clients.
               </div>
             )}
@@ -182,7 +182,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                         e.stopPropagation();
                         handleDelete(a.id);
                       }}
-                      className="text-slate-500 hover:text-rose-400 p-1 rounded transition-colors"
+                      className="text-slate-400 hover:text-rose-400 p-1.5 rounded transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -204,14 +204,14 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
 
                   {/* Today's usage vs caps */}
                   <div className="mt-3 pt-2 border-t border-slate-800/70 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono">
-                    <span className="text-slate-500">{usage.requests} req today</span>
-                    <span className="text-slate-500">{usage.tokens.toLocaleString()} tok</span>
+                    <span className="text-slate-400">{usage.requests} req today</span>
+                    <span className="text-slate-400">{usage.tokens.toLocaleString()} tok</span>
                     <span className={a.daily_spend_cap > 0 && usage.spend >= a.daily_spend_cap ? 'text-rose-400' : 'text-emerald-400'}>
                       ${usage.spend.toFixed(4)}
-                      {a.daily_spend_cap > 0 && <span className="text-slate-500"> / ${a.daily_spend_cap}</span>}
+                      {a.daily_spend_cap > 0 && <span className="text-slate-400"> / ${a.daily_spend_cap}</span>}
                     </span>
                     {a.daily_token_cap > 0 && (
-                      <span className={usage.tokens >= a.daily_token_cap ? 'text-rose-400' : 'text-slate-500'}>
+                      <span className={usage.tokens >= a.daily_token_cap ? 'text-rose-400' : 'text-slate-400'}>
                         cap {a.daily_token_cap.toLocaleString()} tok
                       </span>
                     )}
@@ -260,7 +260,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                   placeholder="e.g. gpt-4o, code-fast, summarizer"
                   className="w-full bg-slate-950 text-white border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:outline-none"
                 />
-                <span className="text-[10px] text-slate-500 block mt-1">
+                <span className="text-[10px] text-slate-400 block mt-1">
                   Sent as the model parameter by any OpenAI-compatible client
                 </span>
               </div>
@@ -276,7 +276,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                   <option value="round-robin">round-robin (Even distribution among targets)</option>
                   <option value="priority">priority (Strict priority waterfall)</option>
                 </select>
-                <span className="text-[10px] text-slate-500 block mt-1">
+                <span className="text-[10px] text-slate-400 block mt-1">
                   Determines which healthy provider and key is chosen first
                 </span>
               </div>
@@ -306,7 +306,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                     <option key={k} value={k}>{k}</option>
                   ))}
                 </select>
-                <span className="text-[10px] text-slate-500 block mt-1">
+                <span className="text-[10px] text-slate-400 block mt-1">
                   Documentation hint only; every /v1 surface may use any pool
                 </span>
               </div>
@@ -341,7 +341,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                   />
                 </div>
               </div>
-              <span className="text-[10px] text-slate-500 block mt-2">
+              <span className="text-[10px] text-slate-400 block mt-2">
                 Checked before dispatch. Exhausting a cap answers new requests with <span className="font-mono text-amber-400">429 quota_exhausted</span>.
               </span>
             </div>
@@ -372,7 +372,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                     </div>
 
                     <div className="flex-1 w-full sm:w-auto">
-                      <label className="block text-[10px] text-slate-500 uppercase mb-0.5">Provider</label>
+                      <label className="block text-[10px] text-slate-400 uppercase mb-0.5">Provider</label>
                       <select
                         value={t.provider_id}
                         onChange={(e) => handleUpdateTarget(idx, 'provider_id', e.target.value)}
@@ -385,7 +385,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                     </div>
 
                     <div className="flex-1 w-full sm:w-auto">
-                      <label className="block text-[10px] text-slate-500 uppercase mb-0.5">Upstream Model</label>
+                      <label className="block text-[10px] text-slate-400 uppercase mb-0.5">Upstream Model</label>
                       <input
                         type="text"
                         value={t.model}
@@ -395,7 +395,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                     </div>
 
                     <div className="w-20">
-                      <label className="block text-[10px] text-slate-500 uppercase mb-0.5">Weight</label>
+                      <label className="block text-[10px] text-slate-400 uppercase mb-0.5">Weight</label>
                       <input
                         type="number"
                         value={t.weight}
@@ -405,7 +405,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                     </div>
 
                     <div className="w-20">
-                      <label className="block text-[10px] text-slate-500 uppercase mb-0.5">Priority</label>
+                      <label className="block text-[10px] text-slate-400 uppercase mb-0.5">Priority</label>
                       <input
                         type="number"
                         value={t.priority}
@@ -416,7 +416,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
 
                     <button
                       onClick={() => handleRemoveTarget(idx)}
-                      className="p-1.5 text-slate-500 hover:text-rose-400 rounded transition-colors self-end sm:self-center"
+                      className="p-1.5 text-slate-400 hover:text-rose-400 rounded transition-colors self-end sm:self-center"
                       title="Remove Target"
                     >
                       <Trash2 className="w-4 h-4" />

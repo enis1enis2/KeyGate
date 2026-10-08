@@ -292,7 +292,7 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
                 }}
                 placeholder="kg-…  (gateway token, not admin token)"
                 autoComplete="off"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <button
                 onClick={() => setShowKey(!showKey)}
@@ -377,7 +377,7 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
             <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wider">Last response</h2>
             {lastUsage ? (
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-slate-500">tokens</span>
+                <span className="text-slate-400">tokens</span>
                 <span className="text-emerald-400">{lastUsage.prompt_tokens} in / {lastUsage.completion_tokens} out</span>
               </div>
             ) : (
@@ -385,20 +385,20 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
             )}
             {lastProvider && (
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-slate-500">provider</span>
+                <span className="text-slate-400">provider</span>
                 <span className="text-indigo-300">{lastProvider}</span>
               </div>
             )}
             {lastModel && (
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-slate-500">model</span>
+                <span className="text-slate-400">model</span>
                 <span className="text-slate-300">{lastModel}</span>
               </div>
             )}
             {lastTrace && (
               <div className="flex items-center justify-between text-slate-400">
-                <span className="text-slate-500">trace</span>
-                <span className="text-slate-500 truncate max-w-[10rem]" title={lastTrace}>{lastTrace.slice(0, 12)}…</span>
+                <span className="text-slate-400">trace</span>
+                <span className="text-slate-400 truncate max-w-[10rem]" title={lastTrace}>{lastTrace.slice(0, 12)}…</span>
               </div>
             )}
           </div>
@@ -408,7 +408,7 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
         <div className="lg:col-span-3 flex flex-col bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[420px] max-h-[60vh]">
             {messagesVisible.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-16">
+              <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 py-16">
                 <Brain className="w-10 h-10 mb-3 text-slate-700" />
                 <p className="text-sm">Ask something to warm up your pool.</p>
                 <p className="text-xs mt-1 text-slate-600">If a provider rate-limits you or stalls, the gateway fails over and the full conversation travels with it.</p>
@@ -449,7 +449,7 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
                 placeholder={gatewayKey ? 'Type a message and press Enter to send…' : 'Add a gateway key on the left to start…'}
                 rows={2}
                 disabled={!gatewayKey}
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
               />
               {sending ? (
                 <button

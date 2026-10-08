@@ -129,7 +129,7 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
                   onClick={() => handleToggle(k)}
                   title={k.is_active ? 'Disable' : 'Enable'}
                   className={`p-1.5 rounded-lg transition-colors ${
-                    k.is_active ? 'bg-slate-800 hover:bg-rose-900/30 text-emerald-400 hover:text-rose-400' : 'bg-slate-800 text-slate-500'
+                    k.is_active ? 'bg-slate-800 hover:bg-rose-900/30 text-emerald-400 hover:text-rose-400' : 'bg-slate-800 text-slate-400'
                   }`}
                 >
                   <Power className="w-3.5 h-3.5" />
@@ -147,30 +147,30 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
             {/* Masked Key Pill */}
             <div className="mt-3 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between text-xs font-mono text-slate-300">
               <span className="flex items-center gap-1.5">
-                <Lock className="w-3 h-3 text-slate-500" />
+                <Lock className="w-3 h-3 text-slate-400" />
                 {k.masked_key}
               </span>
-              <span className="text-[10px] text-slate-500 uppercase">AES-256-GCM</span>
+              <span className="text-[10px] text-slate-400 uppercase">AES-256-GCM</span>
             </div>
 
             {/* Health and Caps stats */}
             <div className="mt-4 pt-3 border-t border-slate-800/80 grid grid-cols-2 gap-2 text-xs font-mono">
               <div>
-                <span className="text-[10px] text-slate-500 block uppercase">Circuit:</span>
+                <span className="text-[10px] text-slate-400 block uppercase">Circuit:</span>
                 <span className={k.circuit_state === 'CLOSED' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
                   {k.circuit_state}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 block uppercase">Success Rate:</span>
+                <span className="text-[10px] text-slate-400 block uppercase">Success Rate:</span>
                 <span className="text-white font-semibold">{k.rolling_success_rate}%</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 block uppercase">RPM Cap:</span>
+                <span className="text-[10px] text-slate-400 block uppercase">RPM Cap:</span>
                 <span className="text-slate-300">{k.current_rpm} / {k.rpm_cap > 0 ? k.rpm_cap : '∞'}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 block uppercase">TPM Cap:</span>
+                <span className="text-[10px] text-slate-400 block uppercase">TPM Cap:</span>
                 <span className="text-slate-300">{k.current_tpm} / {k.tpm_cap > 0 ? k.tpm_cap : '∞'}</span>
               </div>
             </div>
@@ -244,7 +244,7 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
                   required
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:border-indigo-500 focus:outline-none"
                 />
-                <span className="text-[10px] text-slate-500 block mt-1">
+                <span className="text-[10px] text-slate-400 block mt-1">
                   Stored as AES-256-GCM cipher with master key. Never logged or exposed in plain text.
                 </span>
               </div>

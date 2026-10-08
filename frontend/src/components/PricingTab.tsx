@@ -88,7 +88,7 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
             USD per million tokens. Matched most-specific first: <span className="font-mono text-indigo-400">provider_id + model</span>, then <span className="font-mono text-indigo-400">provider + *</span>, then <span className="font-mono text-indigo-400">* + model</span>, then <span className="font-mono text-indigo-400">* + *</span>.
           </p>
         </div>
-        <span className="text-xs font-mono text-slate-500">{rows.length} row{rows.length === 1 ? '' : 's'}</span>
+        <span className="text-xs font-mono text-slate-400">{rows.length} row{rows.length === 1 ? '' : 's'}</span>
       </div>
 
       {/* Add / Edit form */}
@@ -203,7 +203,7 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
                     <td className="py-3 px-4 text-right">
                       <button
                         onClick={() => handleDelete(r.id)}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-rose-400 rounded transition-colors"
                         title="Delete Pricing"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
