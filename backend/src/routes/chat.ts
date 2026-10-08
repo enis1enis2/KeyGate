@@ -2,13 +2,21 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import { CONFIG } from '../config.js';
 import { authorizeGatewayKey, sendAuthError } from '../auth.js';
-import { SmartRouter } from '../engine/router.js';
+import { SmartRouter, type RouteAttemptResult } from '../engine/router.js';
 import { TemplateMapper } from '../engine/mapper.js';
 import { GatewayQuota } from '../engine/gateway-quota.js';
 import { computeCost } from '../engine/pricing.js';
-import { ApiKeyRepo, RequestLogRepo, ChatHistoryRepo } from '../db/index.js';
+import {
+  buildSearchDisabledNotice,
+  buildSearchSystemPrompt,
+  extractSearchQueries,
+  formatSearchResults,
+  stripSearchQueries,
+  webSearch,
+} from '../engine/search.js';
+import { ApiKeyRepo, RequestLogRepo, ChatHistoryRepo, ModelAliasRepo } from '../db/index.js';
 import { toErrorInfo, toOpenAIError } from '../errors.js';
-import type { OpenAIChatRequest, OpenAIMessage, OpenAIChatResponse } from '../types/index.js';
+import type { ModelAliasRecord, OpenAIChatRequest, OpenAIMessage, OpenAIChatResponse } from '../types/index.js';
 
 // DECISION: Clients send stream_options.include_usage so the final SSE chunk carries real token
 // counts. Without it the gateway could not meter streaming usage for TPM limits or daily budgets.
@@ -60,6 +68,119 @@ function lastUserPrompt(messages: OpenAIMessage[] | undefined): string | null {
 
 function assistantContent(response: OpenAIChatResponse | undefined): string | null {
   return messageText(response?.choices?.[0]?.message);
+}
+
+interface SearchedChatResult {
+  result: RouteAttemptResult;
+  content: string;
+  promptTokens: number;
+  completionTokens: number;
+  queries: string[];
+}
+
+// DECISION: Search runs as a ReAct loop above the router: the model emits `SEARCH:` sentinels, the
+// gateway executes the searches and appends results as a tool-result block, then calls the model
+// again. Every round is a real routed request, so each is logged/metered by the router. When the
+// client asked for a stream we buffer the loop and replay the final answer as SSE (a search cannot
+// be streamed token-by-token deterministically).
+async function runSearchedChat(args: {
+  router: SmartRouter;
+  alias: ModelAliasRecord;
+  body: OpenAIChatRequest;
+  traceId: string;
+  gatewayKeyId?: string;
+}): Promise<SearchedChatResult> {
+  const { router, alias, body, traceId, gatewayKeyId } = args;
+  const searchOn = Boolean(alias.search_enabled);
+  const maxRounds = searchOn ? Math.max(0, Math.min(5, alias.search_max_rounds || 3)) : 0;
+  const maxResults = Math.max(1, Math.min(10, alias.search_max_results || 3));
+
+  const messages: OpenAIMessage[] = Array.isArray(body.messages)
+    ? body.messages.map((m) => ({ ...m }))
+    : [];
+  messages.push({
+    role: 'system',
+    content: searchOn ? buildSearchSystemPrompt() : buildSearchDisabledNotice(),
+  });
+
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let last: RouteAttemptResult | null = null;
+  const queries: string[] = [];
+
+  for (let round = 0; round <= maxRounds; round++) {
+    const req: OpenAIChatRequest = { ...body, messages, stream: false };
+    delete req.stream_options;
+
+    const result = await router.routeChatCompletion(body.model, req, traceId, gatewayKeyId, 'chat');
+    last = result;
+    promptTokens += result.promptTokens;
+    completionTokens += result.completionTokens;
+
+    const content = assistantContent(result.response) || '';
+    if (!searchOn || round === maxRounds) break;
+
+    const found = extractSearchQueries(content);
+    if (found.length === 0) break;
+
+    messages.push({ role: 'assistant', content: stripSearchQueries(content) || '(searching the web)' });
+    const blocks: string[] = [];
+    for (const query of found.slice(0, 3)) {
+      queries.push(query);
+      const results = await webSearch(query, { provider: alias.search_provider, maxResults });
+      blocks.push(formatSearchResults(query, results));
+    }
+    messages.push({ role: 'user', content: blocks.join('\n\n') });
+  }
+
+  if (!last) throw new Error('Search loop produced no upstream response.');
+
+  return {
+    result: last,
+    content: stripSearchQueries(assistantContent(last.response) || ''),
+    promptTokens,
+    completionTokens,
+    queries,
+  };
+}
+
+// Replay a buffered answer as a standards-compliant SSE stream (content, usage, finish, [DONE]).
+function writeSynthesizedStream(
+  reply: FastifyReply,
+  args: { result: RouteAttemptResult; content: string; promptTokens: number; completionTokens: number; queries: string[] }
+): void {
+  const created = Math.floor(Date.now() / 1000);
+  const id = args.result.response?.id || `chatcmpl-${Date.now()}`;
+  const base = { id, object: 'chat.completion.chunk', created, model: args.result.model };
+  const finish = args.result.response?.choices?.[0]?.finish_reason || 'stop';
+
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'x-trace-id': id,
+    'x-keygate-provider': args.result.providerId,
+    'x-keygate-model': args.result.model,
+    'x-keygate-search': args.queries.join(' | '),
+  });
+
+  reply.raw.write(
+    `data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: { role: 'assistant', content: args.content }, finish_reason: null }] })}\n\n`
+  );
+  reply.raw.write(
+    `data: ${JSON.stringify({
+      ...base,
+      choices: [],
+      usage: {
+        prompt_tokens: args.promptTokens,
+        completion_tokens: args.completionTokens,
+        total_tokens: args.promptTokens + args.completionTokens,
+      },
+    })}\n\n`
+  );
+  reply.raw.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: finish }] })}\n\n`);
+  reply.raw.write('data: [DONE]\n\n');
+  reply.raw.end();
 }
 
 // DECISION: Record only the prompt/answer pair into chat history. Never the raw request body
@@ -138,6 +259,69 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
 
     const traceId = (request.headers['x-trace-id'] as string) || crypto.randomUUID();
     const router = SmartRouter.getInstance();
+
+    // Agentic search path: only taken when the target pool has search enabled or asks for a
+    // "search disabled" notice. Otherwise the plain streaming path below is used untouched.
+    const alias = ModelAliasRepo.getByName(body.model);
+    if (alias && (alias.search_enabled || alias.search_off_notice)) {
+      try {
+        const outcome = await runSearchedChat({
+          router,
+          alias,
+          body,
+          traceId,
+          gatewayKeyId: auth.keyId,
+        });
+        const total = outcome.promptTokens + outcome.completionTokens;
+        GatewayQuota.addTokens(auth.keyId || '', total);
+
+        recordChatHistory({
+          traceId,
+          poolName: body.model,
+          providerId: outcome.result.providerId,
+          keyId: outcome.result.keyId,
+          model: outcome.result.model,
+          userMessage: lastUserPrompt(body.messages),
+          assistantMessage: outcome.content,
+          promptTokens: outcome.promptTokens,
+          completionTokens: outcome.completionTokens,
+          isStream: Boolean(body.stream),
+        });
+
+        if (!body.stream) {
+          const response: OpenAIChatResponse = {
+            id: outcome.result.response?.id || `chatcmpl-${Date.now()}`,
+            object: 'chat.completion',
+            created: outcome.result.response?.created || Math.floor(Date.now() / 1000),
+            model: outcome.result.model,
+            choices: [
+              {
+                index: 0,
+                message: { role: 'assistant', content: outcome.content },
+                finish_reason: outcome.result.response?.choices?.[0]?.finish_reason || 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: outcome.promptTokens,
+              completion_tokens: outcome.completionTokens,
+              total_tokens: total,
+            },
+          };
+          return reply
+            .header('x-trace-id', traceId)
+            .header('x-keygate-provider', outcome.result.providerId)
+            .header('x-keygate-model', outcome.result.model)
+            .header('x-keygate-search', outcome.queries.join(' | '))
+            .send(response);
+        }
+
+        writeSynthesizedStream(reply, outcome);
+        return reply;
+      } catch (err) {
+        const info = toErrorInfo(err);
+        return reply.status(info.statusCode || 500).send(toOpenAIError(info));
+      }
+    }
 
     try {
       const result = await router.routeChatCompletion(

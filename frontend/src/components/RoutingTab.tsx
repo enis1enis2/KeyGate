@@ -5,10 +5,13 @@ import {
   Trash2, 
   ArrowRight, 
   Check,
-  Wallet
+  Wallet,
+  Globe,
+  Sparkles,
+  X
 } from 'lucide-react';
-import type { ModelAlias, Provider, TargetConfig, EndpointKind, DashboardStats } from '../types';
-import { ENDPOINT_KINDS } from '../types';
+import type { ModelAlias, Provider, TargetConfig, EndpointKind, DashboardStats, TierConfig, SearchProviderId } from '../types';
+import { ENDPOINT_KINDS, SEARCH_PROVIDERS } from '../types';
 import { saveAlias, deleteAlias, errorMessage } from '../api';
 
 interface RoutingTabProps {
@@ -21,7 +24,7 @@ interface RoutingTabProps {
 export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stats, onRefresh }) => {
   const [selectedAlias, setSelectedAlias] = useState<ModelAlias | null>(aliases[0] || null);
   const [aliasName, setAliasName] = useState(aliases[0]?.alias_name || '');
-  const [strategy, setStrategy] = useState<'weighted-by-health' | 'round-robin' | 'priority'>(
+  const [strategy, setStrategy] = useState<ModelAlias['strategy']>(
     aliases[0]?.strategy || 'weighted-by-health'
   );
   const [targets, setTargets] = useState<TargetConfig[]>(aliases[0]?.targets || []);
@@ -32,6 +35,18 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
   const [endpointKind, setEndpointKind] = useState<EndpointKind>(aliases[0]?.endpoint_kind || 'chat');
   const [dailyTokenCap, setDailyTokenCap] = useState(aliases[0]?.daily_token_cap || 0);
   const [dailySpendCap, setDailySpendCap] = useState(aliases[0]?.daily_spend_cap || 0);
+
+  const [searchEnabled, setSearchEnabled] = useState(Boolean(aliases[0]?.search_enabled));
+  const [searchProvider, setSearchProvider] = useState<SearchProviderId>(
+    (aliases[0]?.search_provider as SearchProviderId) || 'duckduckgo'
+  );
+  const [searchMaxResults, setSearchMaxResults] = useState(aliases[0]?.search_max_results || 3);
+  const [searchMaxRounds, setSearchMaxRounds] = useState(aliases[0]?.search_max_rounds || 3);
+  const [searchOffNotice, setSearchOffNotice] = useState(Boolean(aliases[0]?.search_off_notice));
+
+  const [classifierProviderId, setClassifierProviderId] = useState(aliases[0]?.classifier_provider_id || '');
+  const [classifierModel, setClassifierModel] = useState(aliases[0]?.classifier_model || '');
+  const [tiers, setTiers] = useState<TierConfig[]>(aliases[0]?.tiers || []);
 
   const [isSaving, setIsSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -53,6 +68,14 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
     setEndpointKind(a?.endpoint_kind || 'chat');
     setDailyTokenCap(a?.daily_token_cap || 0);
     setDailySpendCap(a?.daily_spend_cap || 0);
+    setSearchEnabled(Boolean(a?.search_enabled));
+    setSearchProvider((a?.search_provider as SearchProviderId) || 'duckduckgo');
+    setSearchMaxResults(a?.search_max_results || 3);
+    setSearchMaxRounds(a?.search_max_rounds || 3);
+    setSearchOffNotice(Boolean(a?.search_off_notice));
+    setClassifierProviderId(a?.classifier_provider_id || '');
+    setClassifierModel(a?.classifier_model || '');
+    setTiers(a?.tiers || []);
     setStatusMsg(null);
   };
 
@@ -66,7 +89,7 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
     ]);
   };
 
-  const handleUpdateTarget = (index: number, field: keyof TargetConfig, val: string | number) => {
+  const handleUpdateTarget = (index: number, field: keyof TargetConfig, val: string | number | undefined) => {
     const updated = [...targets];
     if (!updated[index]) return;
     updated[index] = { ...updated[index], [field]: val };
@@ -77,6 +100,25 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
     setTargets(targets.filter((_, i) => i !== index));
   };
 
+  const handleAddTier = () => {
+    setTiers([...tiers, { name: `tier-${tiers.length + 1}`, description: '' }]);
+  };
+
+  const handleUpdateTier = (index: number, field: keyof TierConfig, value: string) => {
+    const updated = [...tiers];
+    if (!updated[index]) return;
+    updated[index] = { ...updated[index], [field]: value };
+    setTiers(updated);
+  };
+
+  const handleRemoveTier = (index: number) => {
+    const removed = tiers[index]?.name;
+    setTiers(tiers.filter((_, i) => i !== index));
+    if (removed) {
+      setTargets(targets.map((t) => (t.tier === removed ? { ...t, tier: undefined } : t)));
+    }
+  };
+
   const handleSave = async () => {
     if (!aliasName.trim()) {
       setStatusMsg('Pool name is required');
@@ -84,6 +126,10 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
     }
     if (targets.length === 0) {
       setStatusMsg('At least one target provider is required in the chain');
+      return;
+    }
+    if (strategy === 'by-ai' && !classifierProviderId && tiers.length === 0) {
+      setStatusMsg('By-AI pools need either tier tags or a classifier model');
       return;
     }
 
@@ -102,6 +148,14 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
         endpoint_kind: endpointKind,
         daily_token_cap: Number(dailyTokenCap) || 0,
         daily_spend_cap: Number(dailySpendCap) || 0,
+        search_enabled: searchEnabled,
+        search_provider: searchProvider,
+        search_max_results: Number(searchMaxResults) || 3,
+        search_max_rounds: Number(searchMaxRounds) || 3,
+        search_off_notice: searchOffNotice,
+        classifier_provider_id: classifierProviderId || null,
+        classifier_model: classifierModel.trim() || null,
+        tiers,
       });
       setStatusMsg('AI pool saved successfully!');
       onRefresh();
@@ -172,7 +226,14 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                           {a.endpoint_kind}
                         </span>
                       </div>
-                      <div className="text-xs text-indigo-400 font-mono mt-0.5">{a.strategy}</div>
+                      <div className="text-xs text-indigo-400 font-mono mt-0.5 flex items-center gap-2">
+                        {a.strategy}
+                        {Boolean(a.search_enabled) && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                            <Globe className="w-2.5 h-2.5" /> search
+                          </span>
+                        )}
+                      </div>
                       {a.description && (
                         <div className="text-[11px] text-slate-400 mt-1 line-clamp-2">{a.description}</div>
                       )}
@@ -275,9 +336,12 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                   <option value="weighted-by-health">weighted-by-health (Health score & latency p50)</option>
                   <option value="round-robin">round-robin (Even distribution among targets)</option>
                   <option value="priority">priority (Strict priority waterfall)</option>
+                  <option value="by-ai">by-ai (Heuristic + classifier picks the model)</option>
                 </select>
                 <span className="text-[10px] text-slate-400 block mt-1">
-                  Determines which healthy provider and key is chosen first
+                  {strategy === 'by-ai'
+                    ? 'Simple requests go to the cheapest tier; hard ones go to the strongest model'
+                    : 'Determines which healthy provider and key is chosen first'}
                 </span>
               </div>
             </div>
@@ -346,6 +410,166 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
               </span>
             </div>
 
+            {/* Online Web Search */}
+            <div className="border-t border-slate-800 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Online Web Search</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={searchEnabled}
+                  onClick={() => setSearchEnabled(!searchEnabled)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    searchEnabled ? 'bg-indigo-600' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                      searchEnabled ? 'translate-x-4' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                When on, this model may request a live web search and the gateway feeds the results
+                back before answering. Uses keyless backends (no API key needed).
+              </p>
+
+              {searchEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs mt-3">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Provider:</label>
+                    <select
+                      value={searchProvider}
+                      onChange={(e) => setSearchProvider(e.target.value as SearchProviderId)}
+                      className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
+                    >
+                      {SEARCH_PROVIDERS.map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Results per search:</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={searchMaxResults}
+                      onChange={(e) => setSearchMaxResults(parseInt(e.target.value, 10) || 3)}
+                      className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Max search rounds:</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={5}
+                      value={searchMaxRounds}
+                      onChange={(e) => setSearchMaxRounds(parseInt(e.target.value, 10) || 0)}
+                      className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 mt-3 text-[11px] text-slate-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={searchOffNotice}
+                  onChange={(e) => setSearchOffNotice(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-950"
+                />
+                When search is off, tell the model to say that online access is disabled
+              </label>
+            </div>
+
+            {/* By-AI selector (only relevant for the by-ai strategy) */}
+            {strategy === 'by-ai' && (
+              <div className="border-t border-slate-800 pt-4 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-fuchsia-400" />
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">By-AI Model Selector</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  A free heuristic scores each request first. When it is unsure, the optional classifier model below
+                  chooses the tier (or the target when no tiers are tagged). The pick is only a preference — failover still applies.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Classifier provider (optional):</label>
+                    <select
+                      value={classifierProviderId}
+                      onChange={(e) => setClassifierProviderId(e.target.value)}
+                      className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
+                    >
+                      <option value="">None (heuristic only)</option>
+                      {providers.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Classifier model:</label>
+                    <input
+                      type="text"
+                      value={classifierModel}
+                      onChange={(e) => setClassifierModel(e.target.value)}
+                      placeholder="e.g. gpt-4o-mini, llama-3.1-8b-instant"
+                      className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-1.5 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tiers</span>
+                    <button
+                      onClick={handleAddTier}
+                      className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300"
+                    >
+                      <Plus className="w-3 h-3" /> Add tier
+                    </button>
+                  </div>
+                  {tiers.length === 0 && (
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      No tiers yet. Add tiers and tag each target below, or leave empty and let the classifier pick a target directly.
+                    </p>
+                  )}
+                  {tiers.map((t, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={t.name}
+                        onChange={(e) => handleUpdateTier(idx, 'name', e.target.value)}
+                        placeholder="tier name (e.g. cheap, medium, strong)"
+                        className="w-32 bg-slate-950 text-white border border-slate-800 rounded px-2 py-1 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                      />
+                      <input
+                        type="text"
+                        value={t.description || ''}
+                        onChange={(e) => handleUpdateTier(idx, 'description', e.target.value)}
+                        placeholder="description (optional)"
+                        className="flex-1 bg-slate-950 text-white border border-slate-800 rounded px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => handleRemoveTier(idx)}
+                        className="text-slate-400 hover:text-rose-400 p-1"
+                        aria-label="Remove tier"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Target Chain List */}
             <div className="space-y-3 pt-2 border-t border-slate-800">
               <div className="flex items-center justify-between">
@@ -413,6 +637,22 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                         className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
                       />
                     </div>
+
+                    {strategy === 'by-ai' && tiers.length > 0 && (
+                      <div className="w-28">
+                        <label className="block text-[10px] text-slate-400 uppercase mb-0.5">Tier</label>
+                        <select
+                          value={t.tier || ''}
+                          onChange={(e) => handleUpdateTarget(idx, 'tier', e.target.value || undefined)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
+                        >
+                          <option value="">untiered</option>
+                          {tiers.map((tier) => (
+                            <option key={tier.name} value={tier.name}>{tier.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     <button
                       onClick={() => handleRemoveTarget(idx)}

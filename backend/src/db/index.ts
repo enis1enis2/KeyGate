@@ -211,13 +211,23 @@ export const ModelAliasRepo = {
     hedged_delay_ms?: number;
     timeout_ms?: number;
     is_active?: boolean;
+    search_enabled?: boolean;
+    search_provider?: string;
+    search_max_results?: number;
+    search_max_rounds?: number;
+    search_off_notice?: boolean;
+    classifier_provider_id?: string | null;
+    classifier_model?: string | null;
+    tiers_json?: string;
   }): void {
     const db = getDb();
     const stmt = db.prepare(`
       INSERT INTO model_aliases (
         id, alias_name, strategy, targets_json, description, endpoint_kind,
-        daily_token_cap, daily_spend_cap, hedging_enabled, hedged_delay_ms, timeout_ms, is_active, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        daily_token_cap, daily_spend_cap, hedging_enabled, hedged_delay_ms, timeout_ms, is_active,
+        search_enabled, search_provider, search_max_results, search_max_rounds, search_off_notice,
+        classifier_provider_id, classifier_model, tiers_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(alias_name) DO UPDATE SET
         strategy = excluded.strategy,
         targets_json = excluded.targets_json,
@@ -229,6 +239,14 @@ export const ModelAliasRepo = {
         hedged_delay_ms = excluded.hedged_delay_ms,
         timeout_ms = excluded.timeout_ms,
         is_active = excluded.is_active,
+        search_enabled = excluded.search_enabled,
+        search_provider = excluded.search_provider,
+        search_max_results = excluded.search_max_results,
+        search_max_rounds = excluded.search_max_rounds,
+        search_off_notice = excluded.search_off_notice,
+        classifier_provider_id = excluded.classifier_provider_id,
+        classifier_model = excluded.classifier_model,
+        tiers_json = excluded.tiers_json,
         updated_at = datetime('now')
     `);
     stmt.run(
@@ -243,7 +261,15 @@ export const ModelAliasRepo = {
       alias.hedging_enabled ? 1 : 0,
       alias.hedged_delay_ms || 500,
       alias.timeout_ms || 30000,
-      alias.is_active !== false ? 1 : 0
+      alias.is_active !== false ? 1 : 0,
+      alias.search_enabled ? 1 : 0,
+      alias.search_provider || 'duckduckgo',
+      alias.search_max_results || 3,
+      alias.search_max_rounds || 3,
+      alias.search_off_notice ? 1 : 0,
+      alias.classifier_provider_id || null,
+      alias.classifier_model || null,
+      alias.tiers_json || '[]'
     );
   },
 

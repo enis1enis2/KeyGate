@@ -6,6 +6,7 @@ import type {
   ApiKeyRecord,
   EndpointPathKey,
   ModelAliasRecord,
+  OpenAIMessage,
   ProviderSpec,
   RoutingStrategy,
   TargetConfig,
@@ -101,6 +102,99 @@ export function sortTargets(
   }));
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.target);
+}
+
+// ----------------- 'by-ai' complexity routing -----------------
+// DECISION: The 'by-ai' strategy keeps a free, deterministic heuristic as its first pass and only
+// spends a classifier call when the request is genuinely ambiguous. This keeps the common case
+// (a greeting, a short factual question) at zero added latency and cost.
+
+export type ComplexityTier = 'cheap' | 'medium' | 'strong';
+
+const STRONG_SIGNALS = [
+  'prove', 'derive', 'step by step', 'step-by-step', 'analyze', 'analyse', 'algorithm',
+  'proof', 'theorem', 'complexity', 'optimize', 'optimise', 'refactor', 'debug', 'root cause',
+  'architecture', 'design a', 'trade-off', 'tradeoff', 'compare in depth', 'in detail',
+  'essay', 'comprehensive', 'multi-step', 'chain of thought',
+];
+
+const CODE_SIGNALS = ['```', 'function ', 'def ', 'class ', 'import ', 'select ', 'docker', 'regex', 'stack trace'];
+
+const CHEAP_SIGNALS = [
+  'hi', 'hello', 'hey', 'thanks', 'thank you', 'good morning', 'good night', 'how are you',
+  'what is', 'who is', 'whats', "what's", 'define ', 'capital of', 'translate', 'yes or no',
+];
+
+const MEDIUM_CHAR_THRESHOLD = 280;
+const STRONG_CHAR_THRESHOLD = 2400;
+
+export function lastUserText(messages: OpenAIMessage[] | undefined): string {
+  if (!messages) return '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== 'user') continue;
+    if (typeof m.content === 'string') return m.content;
+    if (Array.isArray(m.content)) {
+      return m.content
+        .map((p) => (typeof p === 'string' ? p : typeof (p as { text?: unknown }).text === 'string' ? String((p as { text: string }).text) : ''))
+        .join(' ');
+    }
+  }
+  return '';
+}
+
+export function classifyComplexity(prompt: string): ComplexityTier {
+  const text = prompt.toLowerCase();
+  const length = prompt.length;
+  const hasQuestionMarks = (prompt.match(/\?/g) || []).length;
+  const hasStrong = STRONG_SIGNALS.some((s) => text.includes(s));
+  const hasCode = CODE_SIGNALS.some((s) => text.includes(s));
+
+  if (hasStrong || hasCode || length >= STRONG_CHAR_THRESHOLD) return 'strong';
+  if (length <= MEDIUM_CHAR_THRESHOLD && hasQuestionMarks <= 2) {
+    const shortSimple = length <= 80;
+    if (shortSimple || CHEAP_SIGNALS.some((s) => text.includes(s))) return 'cheap';
+  }
+  return 'medium';
+}
+
+export function targetTierNames(targets: TargetConfig[]): string[] {
+  const names: string[] = [];
+  for (const t of targets) {
+    if (t.tier && !names.includes(t.tier)) names.push(t.tier);
+  }
+  return names;
+}
+
+function sortByHealth(targets: TargetConfig[], healthScore: (providerId: string) => number): TargetConfig[] {
+  return [...targets].sort(
+    (a, b) => (b.weight || 1) * healthScore(b.provider_id) - (a.weight || 1) * healthScore(a.provider_id)
+  );
+}
+
+// Put the targets tagged with the chosen tier first (health-ordered), then the rest so normal
+// failover still has somewhere to go.
+export function orderTargetsByTier(
+  targets: TargetConfig[],
+  tier: string,
+  healthScore: (providerId: string) => number
+): TargetConfig[] {
+  const preferred = sortByHealth(targets.filter((t) => t.tier === tier), healthScore);
+  const rest = sortByHealth(targets.filter((t) => t.tier !== tier), healthScore);
+  return [...preferred, ...rest];
+}
+
+// Bring a classifier-chosen target to the front while preserving failover over the remainder.
+export function orderTargetsByPick(
+  targets: TargetConfig[],
+  chosen: TargetConfig,
+  healthScore: (providerId: string) => number
+): TargetConfig[] {
+  const rest = sortByHealth(
+    targets.filter((t) => !(t.provider_id === chosen.provider_id && t.model === chosen.model)),
+    healthScore
+  );
+  return [chosen, ...rest];
 }
 
 // DECISION: A key with a non-zero daily_budget_cap that already spent it today is treated as

@@ -29,9 +29,16 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
       } catch {
         // Malformed persisted JSON: fall back to an empty target list.
       }
+      let tiers: unknown[] = [];
+      try {
+        tiers = JSON.parse(a.tiers_json || '[]');
+      } catch {
+        // Malformed persisted JSON: fall back to an empty tier list.
+      }
       return {
         ...a,
         targets,
+        tiers,
       };
     });
     return reply.send(parsed);
@@ -52,11 +59,24 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
       hedged_delay_ms?: number;
       timeout_ms?: number;
       is_active?: boolean;
+      search_enabled?: boolean;
+      search_provider?: string;
+      search_max_results?: number;
+      search_max_rounds?: number;
+      search_off_notice?: boolean;
+      classifier_provider_id?: string | null;
+      classifier_model?: string | null;
+      tiers?: unknown;
     };
 
     if (!body || !body.alias_name || !body.targets || !Array.isArray(body.targets)) {
       return reply.status(400).send({ error: 'Missing alias_name or targets array.' });
     }
+
+    const SEARCH_PROVIDERS = ['duckduckgo', 'wikipedia'];
+    const searchProvider = SEARCH_PROVIDERS.includes(body.search_provider as string)
+      ? (body.search_provider as string)
+      : 'duckduckgo';
 
     const id = body.id || crypto.randomUUID();
     ModelAliasRepo.upsert({
@@ -72,6 +92,14 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
       hedged_delay_ms: body.hedged_delay_ms || 500,
       timeout_ms: body.timeout_ms || 30000,
       is_active: body.is_active !== undefined ? body.is_active : true,
+      search_enabled: body.search_enabled || false,
+      search_provider: searchProvider,
+      search_max_results: Math.max(1, Math.min(10, Number(body.search_max_results) || 3)),
+      search_max_rounds: Math.max(0, Math.min(5, Number(body.search_max_rounds) || 3)),
+      search_off_notice: body.search_off_notice || false,
+      classifier_provider_id: body.classifier_provider_id ? String(body.classifier_provider_id) : null,
+      classifier_model: body.classifier_model ? String(body.classifier_model) : null,
+      tiers_json: Array.isArray(body.tiers) ? JSON.stringify(body.tiers) : '[]',
     });
 
     return reply.send({ success: true, id });

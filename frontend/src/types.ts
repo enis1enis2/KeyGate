@@ -37,12 +37,25 @@ export interface TargetConfig {
   model: string;
   weight: number;
   priority: number;
+  tier?: string;
 }
+
+export interface TierConfig {
+  name: string;
+  description?: string;
+}
+
+export type SearchProviderId = 'duckduckgo' | 'wikipedia';
+
+export const SEARCH_PROVIDERS: { id: SearchProviderId; label: string }[] = [
+  { id: 'duckduckgo', label: 'DuckDuckGo (Instant Answer)' },
+  { id: 'wikipedia', label: 'Wikipedia' },
+];
 
 export interface ModelAlias {
   id: string;
   alias_name: string;
-  strategy: 'weighted-by-health' | 'round-robin' | 'priority';
+  strategy: 'weighted-by-health' | 'round-robin' | 'priority' | 'by-ai';
   targets: TargetConfig[];
   hedging_enabled: number | boolean;
   hedged_delay_ms: number;
@@ -52,6 +65,14 @@ export interface ModelAlias {
   endpoint_kind: EndpointKind;
   daily_token_cap: number;
   daily_spend_cap: number;
+  search_enabled: number | boolean;
+  search_provider: SearchProviderId | string;
+  search_max_results: number;
+  search_max_rounds: number;
+  search_off_notice: number | boolean;
+  classifier_provider_id: string | null;
+  classifier_model: string | null;
+  tiers: TierConfig[];
 }
 
 /** Surfaces a pool is expected to serve; only a routing hint, never a restriction. */

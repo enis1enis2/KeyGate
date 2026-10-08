@@ -10,11 +10,16 @@ import { toErrorInfo } from '../errors.js';
 import { quotaRejections } from '../metrics.js';
 import {
   assertPoolBudget,
+  classifyComplexity,
+  lastUserText,
   loadProviderSpec,
+  orderTargetsByPick,
+  orderTargetsByTier,
   providerHealthScore,
   resolveTargets,
   selectCandidateKeys,
   sortTargets,
+  targetTierNames,
 } from './targeting.js';
 import type { 
   ProviderSpec, 
@@ -67,6 +72,156 @@ export class SmartRouter {
   // Keys whose daily budget is already exhausted are excluded so they can never be dispatched to.
   public getCandidateKeys(providerId: string): { key: ApiKeyRecord; isProbe?: boolean }[] {
     return selectCandidateKeys(providerId).available;
+  }
+
+  // DECISION: The "by-ai" strategy resolves target order before the failover chain runs. It uses a
+  // free heuristic first and only asks a classifier model when the request is ambiguous or the pool
+  // has no tier tags. The chosen target is moved to the front; the remaining chain is kept for
+  // failover, so an AI mis-pick can never take the request down.
+  public async orderTargets(
+    alias: ModelAliasRecord,
+    targets: TargetConfig[],
+    req: OpenAIChatRequest
+  ): Promise<TargetConfig[]> {
+    if (alias.strategy !== 'by-ai' || targets.length <= 1) {
+      return sortTargets(alias, targets, providerHealthScore);
+    }
+
+    const prompt = lastUserText(req.messages);
+    const heuristic = classifyComplexity(prompt);
+    const tierNames = targetTierNames(targets);
+    const hasClassifier = Boolean(alias.classifier_provider_id && alias.classifier_model);
+    const ambiguous = heuristic === 'medium' || tierNames.length === 0;
+
+    if (hasClassifier && ambiguous && alias.classifier_provider_id && alias.classifier_model) {
+      if (tierNames.length > 0) {
+        const pickedTier = await this.runClassifier({
+          providerId: alias.classifier_provider_id,
+          model: alias.classifier_model,
+          task: 'complexity tier',
+          prompt,
+          options: tierNames,
+        });
+        if (pickedTier && tierNames.includes(pickedTier)) {
+          return orderTargetsByTier(targets, pickedTier, providerHealthScore);
+        }
+      } else {
+        const options = targets.map((t) => `${t.provider_id}:${t.model}`);
+        const picked = await this.runClassifier({
+          providerId: alias.classifier_provider_id,
+          model: alias.classifier_model,
+          task: 'best upstream model',
+          prompt,
+          options,
+        });
+        const chosen = picked ? targets.find((t) => `${t.provider_id}:${t.model}` === picked) : undefined;
+        if (chosen) {
+          return orderTargetsByPick(targets, chosen, providerHealthScore);
+        }
+      }
+    }
+
+    if (tierNames.length > 0) {
+      const tier = tierNames.includes(heuristic) ? heuristic : tierNames[0]!;
+      return orderTargetsByTier(targets, tier, providerHealthScore);
+    }
+
+    return sortTargets(alias, targets, providerHealthScore);
+  }
+
+  // One-shot, non-streaming classifier call on a designated provider/model. Metered and logged
+  // under endpoint "classifier" (alias_name null) so it never counts against a pool's daily cap.
+  // Returns the single option the model selected, or null when the classifier is unavailable.
+  public async runClassifier(args: {
+    providerId: string;
+    model: string;
+    task: string;
+    prompt: string;
+    options: string[];
+  }): Promise<string | null> {
+    if (args.options.length === 0) return null;
+    const spec = this.getProviderSpec(args.providerId);
+    if (!spec) return null;
+    const key = selectCandidateKeys(args.providerId).available[0]?.key;
+    if (!key) return null;
+
+    const system =
+      `You are a request-routing classifier. Choose the ${args.task} that best fits the user request. ` +
+      `Reply with exactly one of these options and nothing else: ${args.options.join(', ')}.`;
+    const user = `User request:\n${args.prompt.slice(0, 4000)}\n\nAnswer with one option only.`;
+    const classifierReq: OpenAIChatRequest = {
+      model: args.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      max_tokens: 16,
+      temperature: 0,
+    };
+
+    const started = Date.now();
+    try {
+      const attempt = await this.executeAttempt(spec, key, args.model, classifierReq, 12000, false);
+      const content = typeof attempt.response?.choices?.[0]?.message?.content === 'string'
+        ? attempt.response.choices[0].message.content
+        : '';
+      const lower = content.toLowerCase();
+      const picked =
+        args.options.find((o) => lower.includes(o.toLowerCase())) ??
+        null;
+
+      RequestLogRepo.insert({
+        id: crypto.randomUUID(),
+        trace_id: `classifier-${crypto.randomUUID()}`,
+        gateway_key_id: null,
+        alias_name: null,
+        provider_id: args.providerId,
+        key_id: key.id,
+        model: args.model,
+        status: 'success',
+        status_code: attempt.statusCode,
+        error_type: null,
+        latency_ms: attempt.latencyMs,
+        prompt_tokens: attempt.promptTokens,
+        completion_tokens: attempt.completionTokens,
+        is_stream: 0,
+        is_hedged: 0,
+        request_snippet: `[classifier:${args.task}] ${args.prompt.slice(0, 120)}`,
+        response_snippet: content.slice(0, 120) || null,
+        endpoint: 'classifier',
+        cost: computeCost(args.providerId, args.model, attempt.promptTokens, attempt.completionTokens),
+        pool_name: null,
+        created_at: new Date().toISOString(),
+      });
+
+      return picked;
+    } catch (err) {
+      const info = toErrorInfo(err);
+      RequestLogRepo.insert({
+        id: crypto.randomUUID(),
+        trace_id: `classifier-${crypto.randomUUID()}`,
+        gateway_key_id: null,
+        alias_name: null,
+        provider_id: args.providerId,
+        key_id: key.id,
+        model: args.model,
+        status: 'error',
+        status_code: info.statusCode || 500,
+        error_type: info.classified?.errorType ?? 'fatal',
+        latency_ms: Date.now() - started,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        is_stream: 0,
+        is_hedged: 0,
+        request_snippet: `[classifier:${args.task}] ${args.prompt.slice(0, 120)}`,
+        response_snippet: info.message?.slice(0, 200) || 'classifier failed',
+        endpoint: 'classifier',
+        cost: 0,
+        pool_name: null,
+        created_at: new Date().toISOString(),
+      });
+      return null;
+    }
   }
 
   // Dispatch a single request attempt to an upstream provider key
@@ -225,7 +380,7 @@ export class SmartRouter {
       throw new Error(`No active provider targets configured for model alias '${aliasName}'.`);
     }
 
-    const sortedTargets = alias ? sortTargets(alias, targets, providerHealthScore) : targets;
+    const sortedTargets = alias ? await this.orderTargets(alias, targets, req) : targets;
     const timeoutMs = alias?.timeout_ms || CONFIG.defaultTimeoutMs;
     const cb = CircuitBreakerManager.getInstance();
 

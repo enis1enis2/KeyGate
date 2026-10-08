@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS model_aliases (
   hedged_delay_ms INTEGER NOT NULL DEFAULT 500,
   timeout_ms INTEGER NOT NULL DEFAULT 30000,
   is_active INTEGER NOT NULL DEFAULT 1,
+  search_enabled INTEGER NOT NULL DEFAULT 0,
+  search_provider TEXT NOT NULL DEFAULT 'duckduckgo',
+  search_max_results INTEGER NOT NULL DEFAULT 3,
+  search_max_rounds INTEGER NOT NULL DEFAULT 3,
+  search_off_notice INTEGER NOT NULL DEFAULT 0,
+  classifier_provider_id TEXT,
+  classifier_model TEXT,
+  tiers_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

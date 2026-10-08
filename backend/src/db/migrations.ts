@@ -20,6 +20,16 @@ export function runMigrations(db: Database): void {
   ensureColumn(db, 'model_aliases', 'daily_token_cap', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'model_aliases', 'daily_spend_cap', 'REAL NOT NULL DEFAULT 0');
 
+  // Per-pool online web search and the 'by-ai' routing strategy.
+  ensureColumn(db, 'model_aliases', 'search_enabled', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'model_aliases', 'search_provider', "TEXT NOT NULL DEFAULT 'duckduckgo'");
+  ensureColumn(db, 'model_aliases', 'search_max_results', 'INTEGER NOT NULL DEFAULT 3');
+  ensureColumn(db, 'model_aliases', 'search_max_rounds', 'INTEGER NOT NULL DEFAULT 3');
+  ensureColumn(db, 'model_aliases', 'search_off_notice', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'model_aliases', 'classifier_provider_id', 'TEXT');
+  ensureColumn(db, 'model_aliases', 'classifier_model', 'TEXT');
+  ensureColumn(db, 'model_aliases', 'tiers_json', "TEXT NOT NULL DEFAULT '[]'");
+
   // Per-request observability: which OpenAI endpoint was served, what it cost, which pool served it.
   ensureColumn(db, 'request_logs', 'endpoint', "TEXT NOT NULL DEFAULT 'chat'");
   ensureColumn(db, 'request_logs', 'cost', 'REAL NOT NULL DEFAULT 0');

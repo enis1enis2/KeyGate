@@ -10,7 +10,7 @@ export type ErrorClassificationType =
 
 export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
-export type RoutingStrategy = 'weighted-by-health' | 'round-robin' | 'priority';
+export type RoutingStrategy = 'weighted-by-health' | 'round-robin' | 'priority' | 'by-ai';
 
 export type StreamingType = 'none' | 'sse' | 'ndjson';
 
@@ -145,7 +145,19 @@ export interface TargetConfig {
   model: string;
   weight: number;
   priority: number;
+  /** Optional complexity tier used by the 'by-ai' strategy (e.g. cheap, medium, strong). */
+  tier?: string;
 }
+
+// A labelled complexity band the 'by-ai' router classifies a request into. When targets carry a
+// matching `tier`, the classifier only has to return a band name; otherwise it picks a target.
+export interface TierConfig {
+  name: string;
+  description?: string;
+}
+
+// A search backend that needs no API key. KeyGate ships DuckDuckGo + Wikipedia implementations.
+export type SearchProviderId = 'duckduckgo' | 'wikipedia';
 
 // Which OpenAI endpoint surface an AI pool serves. Phase 1 stores it; Phase 2 wires routing.
 export type EndpointKind =
@@ -172,6 +184,16 @@ export interface ModelAliasRecord {
   hedged_delay_ms: number;
   timeout_ms: number;
   is_active: number;
+  // --- Online web search (per pool) ---
+  search_enabled: number; // 1 or 0
+  search_provider: string; // SearchProviderId
+  search_max_results: number;
+  search_max_rounds: number;
+  search_off_notice: number; // inject a "search disabled" note when search is off
+  // --- 'by-ai' strategy ---
+  classifier_provider_id: string | null;
+  classifier_model: string | null;
+  tiers_json: string; // serialized TierConfig[]
   created_at: string;
   updated_at: string;
 }
