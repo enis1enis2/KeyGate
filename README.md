@@ -4,6 +4,7 @@
 
 > **Self-hosted, general-purpose AI API gateway: group upstream provider keys into load-balanced AI pools, route around failing ones, meter and cap spend, and expose ONE OpenAI-compatible API (`/v1`) for any client — plus a modern management UI.**
 
+[![Release](https://img.shields.io/github/v/release/enis1enis2/KeyGate?logo=github)](https://github.com/enis1enis2/KeyGate/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/enis1enis2/KeyGate/ci.yml?branch=main&logo=github)](.github/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-63%20passed-brightgreen)]()
 [![License](https://img.shields.io/github/license/enis1enis2/KeyGate)](LICENSE)
