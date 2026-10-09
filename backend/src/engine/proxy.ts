@@ -755,8 +755,9 @@ async function dispatchAttempt(
     attempt.key.tag
   );
 
-  const authType = attempt.spec.auth.type;
-  const authTemplate = attempt.spec.auth.template.replace(/\{\{\s*key\s*\}\}/g, decryptedKey);
+  const auth = attempt.spec.auth;
+  const authType = auth?.type;
+  const authTemplate = auth ? auth.template.replace(/\{\{\s*key\s*\}\}/g, decryptedKey) : '';
   let url = args.url;
   const headers: Record<string, string> = {
     ...(attempt.spec.static_headers || {}),
@@ -769,7 +770,7 @@ async function dispatchAttempt(
     if (authType === 'body') {
       entries = [
         ...entries,
-        { kind: 'field', name: attempt.spec.auth.name || 'api_key', value: authTemplate },
+        { kind: 'field', name: auth?.name || 'api_key', value: authTemplate },
       ];
     }
     if (args.poolName) {

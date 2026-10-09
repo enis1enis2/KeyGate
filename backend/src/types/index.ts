@@ -100,7 +100,8 @@ export interface ProviderSpec {
   base_url: string;
   endpoint_paths: EndpointPaths;
   http_method: 'POST' | 'GET' | string;
-  auth: ProviderAuth;
+  /** Omitted for keyless upstreams (free anonymous tiers, local servers) — no credential is sent. */
+  auth?: ProviderAuth;
   /** Extra headers sent verbatim on every upstream request (e.g. anthropic-version). */
   static_headers?: Record<string, string>;
   request_mapping?: MappingConfig;

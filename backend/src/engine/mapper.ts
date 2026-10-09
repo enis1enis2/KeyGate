@@ -40,6 +40,9 @@ export class TemplateMapper {
     bodyObj?: unknown
   ): { url: string; headers: Record<string, string>; bodyObj?: unknown } {
     const auth = spec.auth;
+    // Keyless upstreams declare no auth — pass the request through untouched.
+    if (!auth) return { url, headers, bodyObj };
+
     const renderedAuthValue = auth.template.replace(/\{\{\s*key\s*\}\}/g, key);
 
     const updatedHeaders = { ...headers };

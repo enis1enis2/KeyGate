@@ -31,6 +31,21 @@ export const PROVIDER_PRESETS: PresetDef[] = [
   { id: 'xai', label: 'xAI (Grok)', group: 'cloud', defaultBase: 'https://api.x.ai/v1', defaultModel: 'grok-2-latest', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
   { id: 'perplexity', label: 'Perplexity', group: 'cloud', defaultBase: 'https://api.perplexity.ai', defaultModel: 'sonar', needsKey: true, style: 'root', chatPath: '/chat/completions', appendV1: false },
   { id: 'together', label: 'Together AI', group: 'cloud', defaultBase: 'https://api.together.xyz/v1', defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  // Free-tier providers from the "Awesome Free LLM APIs" directory (mnfst/awesome-free-llm-apis).
+  // Cohere and Ollama Cloud expose OpenAI-compatible surfaces on paths that differ from the
+  // native ones advertised in that list, so the defaults below point at the OpenAI-compatible base.
+  { id: 'aion', label: 'Aion Labs', group: 'cloud', defaultBase: 'https://api.aionlabs.ai/v1', defaultModel: 'aion-labs/aion-2.0', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'zai', label: 'Z AI (Zhipu)', group: 'cloud', defaultBase: 'https://api.z.ai/api/paas/v4', defaultModel: 'glm-4.7-flash', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: false },
+  { id: 'cohere', label: 'Cohere', group: 'cloud', defaultBase: 'https://api.cohere.com/compatibility/v1', defaultModel: 'command-r-plus', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: false },
+  { id: 'nvidia', label: 'NVIDIA NIM', group: 'cloud', defaultBase: 'https://integrate.api.nvidia.com/v1', defaultModel: 'nvidia/llama-3.1-nemotron-ultra-253b-v1', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'siliconflow', label: 'SiliconFlow', group: 'cloud', defaultBase: 'https://api.siliconflow.cn/v1', defaultModel: 'Qwen/Qwen3-8B', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'modelscope', label: 'ModelScope', group: 'cloud', defaultBase: 'https://api-inference.modelscope.cn/v1', defaultModel: 'Qwen/Qwen3.5-27B', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'huggingface', label: 'Hugging Face (router)', group: 'cloud', defaultBase: 'https://router.huggingface.co/v1', defaultModel: 'meta-llama/Llama-3.1-8B-Instruct', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'cloudflare', label: 'Cloudflare Workers AI', group: 'cloud', defaultBase: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1', defaultModel: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: false },
+  { id: 'ollama-cloud', label: 'Ollama Cloud', group: 'cloud', defaultBase: 'https://ollama.com/v1', defaultModel: 'gpt-oss:120b', needsKey: true, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'kilocode', label: 'Kilo Code (free, no key)', group: 'cloud', defaultBase: 'https://api.kilo.ai/api/gateway', defaultModel: 'kilo-auto/free', needsKey: false, style: 'openai', chatPath: '/chat/completions', appendV1: false },
+  { id: 'llm7', label: 'LLM7.io (free, no key)', group: 'cloud', defaultBase: 'https://api.llm7.io/v1', defaultModel: 'gpt-oss:20b', needsKey: false, style: 'openai', chatPath: '/chat/completions', appendV1: true },
+  { id: 'ovhcloud', label: 'OVHcloud AI Endpoints (free, no key)', group: 'cloud', defaultBase: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1', defaultModel: 'Meta-Llama-3_3-70B-Instruct', needsKey: false, style: 'openai', chatPath: '/chat/completions', appendV1: true },
   { id: 'ollama', label: 'Ollama (local)', group: 'local', defaultBase: 'http://127.0.0.1:11434', defaultModel: 'llama3.2', needsKey: false, style: 'openai', chatPath: '/chat/completions', appendV1: true },
   { id: 'lmstudio', label: 'LM Studio (local)', group: 'local', defaultBase: 'http://127.0.0.1:1234/v1', defaultModel: 'local-model', needsKey: false, style: 'openai', chatPath: '/chat/completions', appendV1: true },
   { id: 'llamacpp', label: 'llama.cpp server (local)', group: 'local', defaultBase: 'http://127.0.0.1:8080/v1', defaultModel: 'llama', needsKey: false, style: 'openai', chatPath: '/chat/completions', appendV1: true },
@@ -159,7 +174,12 @@ export function buildProviderSpec(input: QuickAddSpecInput): BuiltQuickAddSpec {
       model_name_map: { [input.model]: input.model },
     };
   } else {
-    const auth: ProviderAuth = { type: 'header', name: 'Authorization', template: 'Bearer {{key}}' };
+    // DECISION: Keyless presets (free anonymous tiers, local servers) omit the auth block entirely
+    // so no bogus "Bearer …" header is sent upstream. A placeholder key is still stored by the
+    // quick-add route so pool routing has a key record to dispatch and health-check against.
+    const auth: ProviderAuth | undefined = preset.needsKey
+      ? { type: 'header', name: 'Authorization', template: 'Bearer {{key}}' }
+      : undefined;
     spec = {
       id: `${slugify(input.name)}-${cryptoRandomSegment()}`,
       name: input.name,
@@ -171,7 +191,7 @@ export function buildProviderSpec(input: QuickAddSpecInput): BuiltQuickAddSpec {
         models: '/models',
       },
       http_method: 'POST',
-      auth,
+      ...(auth ? { auth } : {}),
       streaming: { type: 'sse' },
       error_classification: [
         { status_codes: [429], error_type: 'rate_limit' },

@@ -91,6 +91,31 @@ describe('quick-add spec builder', () => {
     expect(built.spec.streaming?.chunk_mapping?.engine).toBe('jsonata');
   });
 
+  it('omits the auth block for keyless presets so no bogus header is sent', () => {
+    const built = buildProviderSpec({
+      name: 'Kilo Free',
+      presetId: 'kilocode',
+      base_url: 'https://api.kilo.ai/api/gateway',
+      model: 'kilo-auto/free',
+    });
+
+    expect(built.spec.auth).toBeUndefined();
+    expect(yaml.parse(built.specYaml)).not.toHaveProperty('auth');
+    expect(built.spec.preset).toBe('openai-compatible');
+  });
+
+  it('keeps the Cohere OpenAI-compatible base without appending /v1', () => {
+    const built = buildProviderSpec({
+      name: 'Cohere Trial',
+      presetId: 'cohere',
+      base_url: 'https://api.cohere.com/compatibility/v1',
+      model: 'command-r-plus',
+    });
+
+    expect(built.base_url).toBe('https://api.cohere.com/compatibility/v1');
+    expect(built.spec.auth).toEqual({ type: 'header', name: 'Authorization', template: 'Bearer {{key}}' });
+  });
+
   it('preserves the preset catalog the wizard depends on', () => {
     const ids = PROVIDER_PRESETS.map((p) => p.id);
     expect(ids).toContain('openai');
