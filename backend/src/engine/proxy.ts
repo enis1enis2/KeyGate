@@ -333,6 +333,20 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
   const resolved = resolveTargets(poolName ?? '', poolName ?? '', opts.pathKey);
   const { alias } = resolved;
 
+  // DECISION: A supplied model that matches no pool, provider or model_name_map entry must
+  // fail instead of riding the first-active-provider fallback — otherwise any model name
+  // would bypass the pool's daily caps, strategy and timeout.
+  if (resolved.resolution === 'unresolved' && !sticky) {
+    return reply.status(404).send({
+      error: {
+        message: `The model '${poolName}' does not exist. Available models are the configured AI pools.`,
+        type: 'invalid_request_error',
+        param: 'model',
+        code: 'model_not_found',
+      },
+    });
+  }
+
   try {
     if (alias && !sticky) assertPoolBudget(alias);
   } catch (err) {
@@ -653,7 +667,7 @@ export async function proxyEndpoint(opts: ProxyEndpointOptions): Promise<Fastify
           usage.promptTokens,
           usage.completionTokens
         );
-        RequestLogRepo.finalizeUsage(traceId, usage.promptTokens, usage.completionTokens, cost);
+        RequestLogRepo.finalizeUsage(traceId, usage.promptTokens, usage.completionTokens, cost, auth.keyId ?? null);
         if (cost > 0) ApiKeyRepo.addDailyUsage(attempt.key.id, cost);
         finalizeGatewayUsage(auth.keyId, usage.totalTokens);
       }

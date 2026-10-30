@@ -8,7 +8,13 @@ import path from 'path';
 import fs from 'fs';
 
 import { CONFIG } from './config.js';
-import { authenticateAdmin, isManagementPath } from './auth.js';
+import {
+  authenticateAdmin,
+  authenticateGatewayKey,
+  isDataPlanePath,
+  isManagementPath,
+  sendAuthError,
+} from './auth.js';
 import { chatRoutes } from './routes/chat.js';
 import { modelsRoutes } from './routes/models.js';
 import { embeddingsRoutes } from './routes/embeddings.js';
@@ -55,6 +61,8 @@ export async function buildServer() {
 
   // DECISION: The management API is a separate trust boundary from /v1. Registering the
   // hook before any route guarantees every /api/* and /metrics request is authenticated.
+  // The hook compares the *normalized* pathname because the router accepts percent-encoded
+  // and absolute-form request targets that a raw-string check would miss.
   fastify.addHook('onRequest', async (request, reply) => {
     if (!isManagementPath(request.url)) return;
 
@@ -65,6 +73,32 @@ export async function buildServer() {
         .status(401)
         .send({ error: auth.error || 'Unauthorized' });
     }
+  });
+
+  // DECISION: Authenticate the gateway bearer token before Fastify parses or buffers any
+  // request body. Pool scope and rpm/tpm quotas still run inside each route (they need the
+  // parsed body), but an unauthenticated caller can no longer force JSON parsing or up to
+  // MAX_UPLOAD_BYTES × files of multipart buffering per request.
+  fastify.addHook('onRequest', async (request, reply) => {
+    if (!isDataPlanePath(request.url)) return;
+
+    const auth = authenticateGatewayKey(request);
+    if (!auth.authenticated) {
+      return sendAuthError(reply, auth);
+    }
+  });
+
+  // DECISION: Baseline hardening headers for the SPA and JSON responses. Streaming/binary
+  // responses that write to reply.raw bypass these, which is harmless for SSE/audio bodies.
+  fastify.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    reply.header(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    );
   });
 
   // DECISION: Multipart bodies are parsed so pool scope can be enforced on image/audio

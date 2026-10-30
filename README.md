@@ -126,7 +126,7 @@ All routes require `Authorization: Bearer kg-live-...` (unless `KEYGATE_REQUIRE_
 | `/v1/files` (+ `/:id`, `/:id/content`) | `GET`, `POST` | File upload/list/retrieve, pinned to the creating upstream account |
 | `/v1/batches` (+ `/:id`, `/:id/cancel`) | `GET`, `POST` | Batch jobs, pinned to the creating upstream account |
 | `/v1/models` | `GET` | Lists the pools this gateway key may use |
-| `/v1/passthrough/{provider}/*` | `ANY` | Injects the healthiest key into raw requests for anything else |
+| `/v1/passthrough/{provider}/*` | `ANY` | Injects the healthiest key into raw requests for anything else (confined to the provider's base URL; pool-scoped keys only reach providers their pools target) |
 
 ### Management API (`/api`)
 All `/api/*` routes and `/metrics` require `Authorization: Bearer <KEYGATE_ADMIN_TOKEN>`. The Management UI prompts for this token and stores it in `localStorage`.
@@ -184,7 +184,9 @@ KeyGate (/v1/chat/completions)
 
 - **Encrypted at Rest**: Keys are encrypted with **AES-256-GCM** using unique IVs and authenticated tags.
 - **Zero Key Leakage**: Sensitive credentials are never logged and never returned in full (masked as `prefix...suffix`).
-- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`.
+- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`, checked against the **normalized** request path (percent-encoded and absolute-form targets included) before routing.
+- **Pre-Auth Data Plane**: the gateway bearer token is verified for `/v1/*` before any request body is parsed or buffered, so unauthenticated callers cannot drive upload buffering.
+- **Scoped Model Routing**: a `model` that matches no AI pool answers `404 model_not_found` instead of silently falling back to the first provider, so pool daily caps cannot be bypassed with an unknown model name.
 - **Fail-Fast Secrets**: `KEYGATE_MASTER_KEY` / `KEYGATE_ADMIN_TOKEN` are mandatory under `NODE_ENV=production`.
 - **Rate Limiting**: Global cap plus a tighter per-route cap on `/v1/*` (`RATE_LIMIT_MAX`, `RATE_LIMIT_V1_MAX`, `RATE_LIMIT_WINDOW_MS`).
 - **Quotas Enforced Before Dispatch**: gateway-key rpm/tpm slots, pool daily token/spend caps and API-key daily budgets are all checked *before* an upstream call; violations answer `429 quota_exhausted` with `Retry-After` instead of burning money.

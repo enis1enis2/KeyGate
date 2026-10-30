@@ -372,6 +372,17 @@ export class SmartRouter {
     const resolved = resolveTargets(aliasName, req.model, 'chat');
     const { alias, targets } = resolved;
 
+    // DECISION: Never route a model name that matches nothing: the first-active-provider
+    // fallback would silently bypass the pool's daily caps, strategy and timeout.
+    if (resolved.resolution === 'unresolved') {
+      throw {
+        statusCode: 404,
+        code: 'model_not_found',
+        type: 'invalid_request_error',
+        message: `The model '${aliasName}' does not exist. Available models are the configured AI pools.`,
+      };
+    }
+
     if (alias) {
       assertPoolBudget(alias);
     }

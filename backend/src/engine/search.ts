@@ -18,7 +18,23 @@ export interface WebSearchOptions {
 
 const SEARCH_TIMEOUT_MS = 8000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+// DECISION: Cache cardinality is attacker-influenceable (the query derives from model output,
+// which derives from the user prompt), so entries expire by TTL and the map has a hard cap
+// with oldest-first eviction — a stream of unique queries cannot grow memory without bound.
+const CACHE_MAX_ENTRIES = 256;
 const cache = new Map<string, { at: number; results: SearchResult[] }>();
+
+function pruneCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.at >= CACHE_TTL_MS) cache.delete(key);
+  }
+  while (cache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
 
 // The sentinel the model is instructed to emit when it needs fresh information. A line looks like
 // `SEARCH: latest fedora release` (a wrapping [ ] is tolerated).
@@ -228,6 +244,7 @@ export async function webSearch(query: string, opts: WebSearchOptions = {}): Pro
     return [];
   }
 
+  pruneCache();
   cache.set(cacheKey, { at: Date.now(), results });
   return results;
 }
