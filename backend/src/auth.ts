@@ -64,7 +64,12 @@ export function authenticateGatewayKey(request: FastifyRequest): AuthResult {
     };
   }
 
-  const keyRecord = GatewayKeyRepo.getByHash(hashToken(rawToken));
+  let keyRecord: GatewayKeyRecord | null = null;
+  try {
+    keyRecord = GatewayKeyRepo.getByHash(hashToken(rawToken));
+  } catch {
+    return denialResult('invalid_token', 'Invalid or revoked Gateway API key.');
+  }
   if (!keyRecord) {
     return denialResult('invalid_token', 'Invalid or revoked Gateway API key.');
   }

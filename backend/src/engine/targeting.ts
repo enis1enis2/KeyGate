@@ -70,14 +70,16 @@ export function resolveTargets(
     }
   }
 
+  // Resolve targets when the alias has no pre-parsed target list.
   if (targets.length === 0) {
+    // 1. Direct provider id takes priority.
     const directProvider = ProviderRepo.getById(aliasName);
     if (directProvider) {
       targets = [{ provider_id: directProvider.id, model, weight: 1, priority: 1 }];
       resolution = 'provider';
-    } else if (!aliasName) {
-      // Model-less surfaces (files/batches/variations) fall back to the first active
-      // provider that declares the path; there is no client-supplied model to scope.
+    }
+    // 2. Model-less surface (no client-supplied model name).
+    else if (!aliasName) {
       const active = ProviderRepo.getAll().filter((p) => p.is_active);
       const declared = active.filter((p) => providerDeclaresPath(p.id, pathKey));
       const pool = declared.length > 0 ? declared : active;
@@ -85,9 +87,9 @@ export function resolveTargets(
         targets = [{ provider_id: pool[0]!.id, model, weight: 1, priority: 1 }];
         resolution = 'fallback';
       }
-    } else if (!alias) {
-      // A supplied model that is neither a pool nor a provider id may still be a
-      // model_name_map key advertised by /v1/models; route it to its owning provider.
+    }
+    // 3. Model supplied but not a pool or provider id → check model_name_map.
+    else if (!alias) {
       const active = ProviderRepo.getAll().filter((p) => p.is_active);
       for (const p of active) {
         const spec = loadProviderSpec(p.id);
@@ -103,9 +105,9 @@ export function resolveTargets(
         // strategy and timeout that the operator attached to the real pool.
         resolution = 'unresolved';
       }
-    } else {
-      // Alias exists but has no usable target list: keep the historical fallback so the
-      // pool (and its caps) stays in force rather than 404ing a configured pool.
+    }
+    // 4. Alias exists but has no usable target list → keep historical fallback.
+    else {
       const active = ProviderRepo.getAll().filter((p) => p.is_active);
       const declared = active.filter((p) => providerDeclaresPath(p.id, pathKey));
       const pool = declared.length > 0 ? declared : active;

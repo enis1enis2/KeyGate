@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/enis1enis2/KeyGate?logo=github)](https://github.com/enis1enis2/KeyGate/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/enis1enis2/KeyGate/ci.yml?branch=main&logo=github)](.github/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-63%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-122%20passed-brightgreen)]()
 [![License](https://img.shields.io/github/license/enis1enis2/KeyGate)](LICENSE)
 [![Fastify](https://img.shields.io/badge/Fastify-v5-black.svg)]()
 [![React](https://img.shields.io/badge/React-19-cyan.svg)]()
@@ -184,15 +184,16 @@ KeyGate (/v1/chat/completions)
 
 - **Encrypted at Rest**: Keys are encrypted with **AES-256-GCM** using unique IVs and authenticated tags.
 - **Zero Key Leakage**: Sensitive credentials are never logged and never returned in full (masked as `prefix...suffix`).
-- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`, checked against the **normalized** request path (percent-encoded and absolute-form targets included) before routing.
-- **Pre-Auth Data Plane**: the gateway bearer token is verified for `/v1/*` before any request body is parsed or buffered, so unauthenticated callers cannot drive upload buffering.
-- **Scoped Model Routing**: a `model` that matches no AI pool answers `404 model_not_found` instead of silently falling back to the first provider, so pool daily caps cannot be bypassed with an unknown model name.
-- **Fail-Fast Secrets**: `KEYGATE_MASTER_KEY` / `KEYGATE_ADMIN_TOKEN` are mandatory under `NODE_ENV=production`.
-- **Rate Limiting**: Global cap plus a tighter per-route cap on `/v1/*` (`RATE_LIMIT_MAX`, `RATE_LIMIT_V1_MAX`, `RATE_LIMIT_WINDOW_MS`).
-- **Quotas Enforced Before Dispatch**: gateway-key rpm/tpm slots, pool daily token/spend caps and API-key daily budgets are all checked *before* an upstream call; violations answer `429 quota_exhausted` with `Retry-After` instead of burning money.
-- **Same-Origin by Default**: No CORS headers unless `CORS_ORIGINS` explicitly lists allowed origins.
-- **Session Expiry**: The UI signs out automatically on a `401` from the management API.
-- **Data Retention**: Request trace logs and metrics are retained for 30 days and automatically pruned by a background task.
+- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`, checked against the **normalized** request path (percent-encoded and absolute-form targets included) before routing. **Audit fix**: Guards now use `normalizedPathname()` so percent-encoded (`/%61pi/keys`) and absolute-form (`GET http://host/api/keys`) targets are normalized before comparison.
+- **Pre-Auth Data Plane**: the gateway bearer token is verified for `/v1/*` before any request body is parsed or buffered, so unauthenticated callers cannot drive upload buffering. **Audit fix**: Added `/v1/*` onRequest hook that authenticates the gateway token before Fastify parses/buffers any body.
+- **Scoped Model Routing**: a `model` that matches no AI pool answers `404 model_not_found` instead of silently falling back to the first provider, so pool daily caps cannot be bypassed with an unknown model name. **Audit fix**: `resolveTargets()` returns `unresolved` → `404 model_not_found` for unknown models.
+- **Passthrough Path Confinement**: `/v1/passthrough/:provider/*` resolves its wildcard against the provider `base_url` with `new URL()`, rejects dot segments (literal or percent-encoded, `/` or `\\`) and verifies origin + base-path prefix, so a gateway key cannot escape the provider's base path and hit other endpoints on the provider host with the operator's credential attached. **Audit fix**: Dot-segment rejection + origin/base-path verification; hop-by-hop headers no longer relayed upstream.
+- **Passthrough Pool Scope**: a gateway key with an explicit pool scope may only reach providers that at least one of its allowed pools targets (`isProviderReachableByKey`); `['*']` keys behave as before. **Audit fix**: Previously passthrough skipped the scope check entirely; now keys restricted to specific pools get 403 `model_not_allowed` outside their pools.
+- **Baseline Response Headers**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, and a CSP (`script-src 'self'`, `frame-ancestors 'none'`, …) verified against the production bundle (external module script only, no inline script/style, no external fetches). **Audit fix**: Added as part of the Cloudflare security-audit-skill hardening pass.
+- **Client Trace-Id Validation**: client `x-trace-id` accepted when matching `^[A-Za-z0-9._:-]{8,64}$`; `finalizeUsage()` scoped by `gateway_key_id IS ?` so one key's stream can never rewrite another key's metering rows. **Audit fix**: Format validation + key-id scoping in metering.
+- **Web-Search Cache**: bounded by TTL + 256-entry cap (query cardinality is attacker-influenceable). **Audit fix**: TTL + oldest-first eviction cap added.
+- **Health Probe Redaction**: `/healthz` no longer echoes driver error text to anonymous callers. **Audit fix**: Error text redacted.
+- **CI Integrity**: actions pinned to full commit SHAs with `permissions: contents: read`; unused `zod` dependency removed. **Audit fix**: SHA pins + permissions added.
 
 ### Environment Variables
 
