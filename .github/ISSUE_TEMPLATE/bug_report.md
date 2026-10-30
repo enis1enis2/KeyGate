@@ -49,3 +49,23 @@ If applicable.
 ## Additional context
 
 Anything else relevant, e.g. a failing test case, logs from `mock-dbg.mjs`.
+
+---
+
+### 🔒 Security bug report
+
+**Do not use this template for security issues.** Instead, follow
+[`SECURITY.md`](SECURITY.md) and report privately via GitHub's private
+vulnerability reporting, a security advisory, or contact the maintainers
+directly.
+
+If you've found a security vulnerability, do NOT fill out the fields above.
+Instead, provide:
+
+- A minimal, reproducible test case (commands + expected vs. actual output).
+- The affected version(s), commit, or Docker image tag.
+- Your assessment of impact (remote unauthenticated? data exposure? DoS?).
+- Configuration involved (`KEYGATE_MASTER_KEY`, `KEYGATE_ADMIN_TOKEN`,
+  `KEYGATE_REQUIRE_AUTH`, provider specs).
+- **Never** include `KEYGATE_MASTER_KEY`, `KEYGATE_ADMIN_TOKEN`, or full
+  upstream API keys in the issue body, logs, or screenshots.

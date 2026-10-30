@@ -1,4 +1,4 @@
-# Contributor Covenant Code of Conduct
+# Contributor Covenant Code of Conduct (Version 2.1)
 
 ## Our Pledge
 
@@ -36,6 +36,14 @@ Examples of unacceptable behavior include:
 - Other conduct which could reasonably be considered inappropriate in a
   professional setting
 
+Additionally for this project:
+
+- No gatekeeping or dismissing reports of bugs/security issues
+- No undermining the audit findings or security hardening work
+- No introducing dependencies or code that bypasses the security measures
+  documented in SECURITY.md
+- Respect the maintainers' decisions on deprecation and version support
+
 ## Enforcement Responsibilities
 
 Community leaders are responsible for clarifying and enforcing our standards of
@@ -46,63 +54,91 @@ or harmful.
 ## Scope
 
 This Code of Conduct applies within all community spaces, and also applies when
-an individual is officially representing the community in public spaces.
+an individual is officially representing the community in public spaces
+(issuing PRs, opening issues, representing KeyGate at meetups or conferences).
 
 ## Enforcement
 
+### How to report
+
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement by opening an
-issue under the repository's **Security** section, or by contacting the
-maintainers through a trusted channel.
+reported in the following ways:
+
+1. **Privately to maintainers** — email `security@keygate.example` or open a
+   private GitHub issue under the repository's **Security** section.
+2. **Via GitHub's private vulnerability reporting** — use the
+   `Security → Report a vulnerability` page if the issue relates to safety or
+   data exposure.
 
 All complaints will be reviewed and investigated promptly and fairly. Community
-leaders are obligated to respect the privacy and security of the reporter of any
-incident.
+leaders are obligated to respect the privacy and security of the reporter of
+any incident.
+
+### Report handling timeline
+
+- **Acknowledgement**: Within 3 business days of submission.
+- **Initial assessment**: Within 5 business days — determine severity and scope.
+- **Resolution**: Within 30 calendar days for most issues; critical security
+  issues may have a faster track.
+- **Communication**: The reporter will be kept informed of progress (unless
+  doing so would compromise the investigation or the reporter's safety).
 
 ## Enforcement Guidelines
 
 Community leaders will follow these Community Impact Guidelines in determining
 the consequences for any action they deem in violation of this Code of Conduct:
 
-### 1. Correction
+### Level 1 — Correction
 
 **Community Impact**: Use of inappropriate language or other behavior deemed
-unprofessional or unwelcome in the community.
+unprofessional or unwelcome in the community; first-time minor infractions.
 
-**Consequence**: A private, written warning, providing clarity around the nature
-of the violation and an explanation of why the behavior was inappropriate. A
-public apology may be requested.
+**Consequence**: A private, written warning from a community leader, providing
+clarity around the nature of the violation and an explanation of why the
+behavior was inappropriate. A public apology may be requested if the violation
+occurred in a public space. No further action if the contributor corrects the
+behavior promptly.
 
-### 2. Warning
+### Level 2 — Warning
 
-**Community Impact**: A violation through a single incident or series of
-actions.
+**Community Impact**: A violation through a single incident or series of actions;
+repeated Level 1 infractions after warning.
 
-**Consequence**: A warning with consequences for continued behavior. No
-interaction with the people involved, including unsolicited interaction with
-those enforcing the Code of Conduct, for a specified period of time. This
-includes avoiding interactions in community spaces as well as external channels
-like social media. Violating these terms may lead to a temporary or permanent
-ban.
+**Consequence**: A formal warning with consequences for continued behavior.
+No interaction with the people involved, including unsolicited interaction with
+those enforcing the Code of Conduct, for a specified period (typically 30 days).
+This includes avoiding interactions in community spaces as well as external
+channels like social media. Violating these terms may lead to a temporary or
+permanent ban.
 
-### 3. Temporary Ban
+### Level 3 — Temporary Ban
 
 **Community Impact**: A serious violation of community standards, including
-sustained inappropriate behavior.
+sustained inappropriate behavior, or a single egregious incident (e.g.,
+harassment, discrimination, doxxing).
 
 **Consequence**: A temporary ban from any sort of interaction or public
-communication with the community for a specified period of time. No public or
-private interaction with the people involved is allowed during this period.
-Violating these terms may lead to a permanent ban.
+communication with the community for a specified period (typically 90 days).
+No public or private interaction with the people involved is allowed during
+this period. Violating these terms may lead to a permanent ban.
 
-### 4. Permanent Ban
+### Level 4 — Permanent Ban
 
 **Community Impact**: Demonstrating a pattern of violation of community
 standards, including sustained inappropriate behavior, harassment of an
 individual, or aggression toward or disparagement of classes of individuals.
 
 **Consequence**: A permanent ban from any sort of public interaction within the
-community.
+community. This includes opening issues, submitting PRs, commenting in
+discussions, and representing KeyGate in any public capacity.
+
+### Automatic escalation
+
+- Any report of harassment, discrimination, or safety concerns escalates one
+  level higher than the standard guidelines.
+- Retaliation against anyone who reports a violation in good faith is itself
+  a Code of Conduct violation and will be treated as a Level 3 or Level 4
+  offense, whichever is appropriate.
 
 ## Attribution
 
