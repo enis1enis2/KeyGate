@@ -33,11 +33,24 @@ function providerDeclaresPath(providerId: string, pathKey: EndpointPathKey): boo
   return Boolean(spec?.endpoint_paths?.[pathKey]);
 }
 
+export type TargetResolution =
+  /** The model name matched an AI pool (alias). */
+  | 'alias'
+  /** The model name matched a provider id, addressing that provider directly. */
+  | 'provider'
+  /** The model name appears in some active provider's model_name_map. */
+  | 'model_map'
+  /** No model name was supplied (model-less surfaces such as files/batches). */
+  | 'fallback'
+  /** A model name was supplied but matched nothing: must not route. */
+  | 'unresolved';
+
 export interface ResolvedTargets {
   alias: ModelAliasRecord | null;
   aliasName: string;
   targets: TargetConfig[];
   specByProvider: Map<string, ProviderSpec>;
+  resolution: TargetResolution;
 }
 
 export function resolveTargets(
@@ -47,6 +60,7 @@ export function resolveTargets(
 ): ResolvedTargets {
   const alias = ModelAliasRepo.getByName(aliasName);
   let targets: TargetConfig[] = [];
+  let resolution: TargetResolution = alias ? 'alias' : 'unresolved';
 
   if (alias) {
     try {
@@ -60,17 +74,49 @@ export function resolveTargets(
     const directProvider = ProviderRepo.getById(aliasName);
     if (directProvider) {
       targets = [{ provider_id: directProvider.id, model, weight: 1, priority: 1 }];
+      resolution = 'provider';
+    } else if (!aliasName) {
+      // Model-less surfaces (files/batches/variations) fall back to the first active
+      // provider that declares the path; there is no client-supplied model to scope.
+      const active = ProviderRepo.getAll().filter((p) => p.is_active);
+      const declared = active.filter((p) => providerDeclaresPath(p.id, pathKey));
+      const pool = declared.length > 0 ? declared : active;
+      if (pool.length > 0) {
+        targets = [{ provider_id: pool[0]!.id, model, weight: 1, priority: 1 }];
+        resolution = 'fallback';
+      }
+    } else if (!alias) {
+      // A supplied model that is neither a pool nor a provider id may still be a
+      // model_name_map key advertised by /v1/models; route it to its owning provider.
+      const active = ProviderRepo.getAll().filter((p) => p.is_active);
+      for (const p of active) {
+        const spec = loadProviderSpec(p.id);
+        if (spec?.model_name_map && Object.prototype.hasOwnProperty.call(spec.model_name_map, model)) {
+          targets = [{ provider_id: p.id, model, weight: 1, priority: 1 }];
+          resolution = 'model_map';
+          break;
+        }
+      }
+      if (targets.length === 0) {
+        // DECISION: Unknown model names must fail with 404 instead of silently riding the
+        // first-active-provider fallback, which would bypass the pool's daily caps,
+        // strategy and timeout that the operator attached to the real pool.
+        resolution = 'unresolved';
+      }
     } else {
+      // Alias exists but has no usable target list: keep the historical fallback so the
+      // pool (and its caps) stays in force rather than 404ing a configured pool.
       const active = ProviderRepo.getAll().filter((p) => p.is_active);
       const declared = active.filter((p) => providerDeclaresPath(p.id, pathKey));
       const pool = declared.length > 0 ? declared : active;
       if (pool.length > 0) {
         targets = [{ provider_id: pool[0]!.id, model, weight: 1, priority: 1 }];
       }
+      resolution = 'alias';
     }
   }
 
-  return { alias, aliasName, targets, specByProvider: new Map() };
+  return { alias, aliasName, targets, specByProvider: new Map(), resolution };
 }
 
 const roundRobinIndices: Map<string, number> = new Map();

@@ -7,6 +7,10 @@ export interface ErrorInfo {
   statusCode?: number;
   latencyMs?: number;
   classified?: ClassifiedError;
+  /** OpenAI error `code` override (e.g. model_not_found). */
+  code?: string;
+  /** OpenAI error `type` override (e.g. invalid_request_error). */
+  type?: string;
 }
 
 export function toErrorInfo(err: unknown): ErrorInfo {
@@ -20,6 +24,8 @@ export function toErrorInfo(err: unknown): ErrorInfo {
       statusCode?: unknown;
       latencyMs?: unknown;
       classified?: unknown;
+      code?: unknown;
+      type?: unknown;
     };
     const classified =
       typeof e.classified === 'object' && e.classified !== null && 'errorType' in e.classified
@@ -31,6 +37,8 @@ export function toErrorInfo(err: unknown): ErrorInfo {
       statusCode: typeof e.statusCode === 'number' ? e.statusCode : undefined,
       latencyMs: typeof e.latencyMs === 'number' ? e.latencyMs : undefined,
       classified,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      type: typeof e.type === 'string' ? e.type : undefined,
     };
   }
 
@@ -65,8 +73,8 @@ export function toOpenAIError(info: ErrorInfo): OpenAIErrorEnvelope {
   return {
     error: {
       message: info.classified?.message || info.message || 'Internal gateway error',
-      type: openaiErrorType(classifiedType),
-      code: classifiedType || 'internal_error',
+      type: info.type || openaiErrorType(classifiedType),
+      code: info.code || classifiedType || 'internal_error',
     },
   };
 }

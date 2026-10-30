@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { CONFIG } from './config.js';
-import { GatewayKeyRepo } from './db/index.js';
+import { GatewayKeyRepo, ModelAliasRepo } from './db/index.js';
 import { hashToken } from './crypto.js';
 import { GatewayQuota, type QuotaDenialReason } from './engine/gateway-quota.js';
 import { quotaRejections, authRejections } from './metrics.js';
@@ -181,7 +181,80 @@ export function authenticateAdmin(request: FastifyRequest): AuthResult {
   return { authenticated: true };
 }
 
+// DECISION: Route matching and guard checks must agree on the request-target. The router
+// percent-decodes and accepts absolute-form targets, so comparing the raw URL would let a
+// request like `GET /%61pi/keys` or `GET http://host/api/keys` reach an admin route while
+// the guard skips it. Every path check in this file goes through this normalizer instead.
+export function normalizedPathname(url: string): string {
+  let pathname = url.split('?')[0] ?? url;
+
+  // Absolute-form request targets (proxy-style `GET http://host/path HTTP/1.1`).
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(pathname)) {
+    try {
+      pathname = new URL(pathname).pathname;
+    } catch {
+      // Keep the raw value; the checks below then fail closed.
+    }
+  }
+
+  // Percent-decode (best effort) so encoded segments cannot dodge the prefix check.
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    // Malformed escapes stay raw; they never match a registered route either.
+  }
+
+  // Collapse duplicate slashes and resolve `.` / `..` segments.
+  const segments: string[] = [];
+  for (const segment of pathname.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return `/${segments.join('/')}`;
+}
+
 export function isManagementPath(url: string): boolean {
-  const pathname = url.split('?')[0] ?? url;
+  const pathname = normalizedPathname(url);
   return pathname === '/api' || pathname.startsWith('/api/') || pathname === '/metrics';
+}
+
+// The /v1 data plane authenticates in the route handler (pool scope needs the body), but the
+// bearer token itself is checked in an onRequest hook so no body is ever parsed or buffered
+// for an unauthenticated caller.
+export function isDataPlanePath(url: string): boolean {
+  const pathname = normalizedPathname(url);
+  return pathname === '/v1' || pathname.startsWith('/v1/');
+}
+
+// Gateway-key pool scope for surfaces that address a provider directly (passthrough).
+// A key restricted to specific pools may only reach providers that at least one of its
+// allowed pools targets; `['*']` keeps unrestricted keys unrestricted.
+export function isProviderReachableByKey(key: GatewayKeyRecord, providerId: string): boolean {
+  let allowed: unknown;
+  try {
+    allowed = JSON.parse(key.allowed_aliases_json);
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(allowed) || allowed.length === 0) return false;
+  if (allowed.includes('*')) return true;
+
+  for (const entry of allowed) {
+    if (typeof entry !== 'string') continue;
+    const alias = ModelAliasRepo.getByName(entry);
+    if (!alias) continue;
+    try {
+      const targets = JSON.parse(alias.targets_json) as Array<{ provider_id?: unknown }>;
+      if (Array.isArray(targets) && targets.some((t) => t?.provider_id === providerId)) {
+        return true;
+      }
+    } catch {
+      // A malformed target list simply grants no reachability.
+    }
+  }
+  return false;
 }

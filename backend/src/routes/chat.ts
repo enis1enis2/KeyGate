@@ -230,6 +230,17 @@ function recordChatHistory(args: {
   }
 }
 
+// DECISION: A client-supplied x-trace-id is only honored when it is a bounded, safe token.
+// request_logs rows are keyed for metering finalization by trace id, so arbitrary client
+// strings (path separators, huge values, control characters) must never reach the column.
+const CLIENT_TRACE_ID = /^[A-Za-z0-9._:-]{8,64}$/;
+
+function resolveTraceId(request: FastifyRequest): string {
+  const header = request.headers['x-trace-id'];
+  if (typeof header === 'string' && CLIENT_TRACE_ID.test(header)) return header;
+  return crypto.randomUUID();
+}
+
 export const chatRoutes: FastifyPluginAsync = async (fastify) => {
   // DECISION: Chat completions are the hottest path, so they carry their own stricter rate limit.
   fastify.post('/v1/chat/completions', {
@@ -257,7 +268,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
 
     ensureUsageReporting(body);
 
-    const traceId = (request.headers['x-trace-id'] as string) || crypto.randomUUID();
+    const traceId = resolveTraceId(request);
     const router = SmartRouter.getInstance();
 
     // Agentic search path: only taken when the target pool has search enabled or asks for a
@@ -436,7 +447,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
         const completionTokens = streamUsage?.completion_tokens || 0;
         if (streamUsage || streamedContent) {
           const cost = computeCost(result.providerId, result.model, promptTokens, completionTokens);
-          RequestLogRepo.finalizeUsage(traceId, promptTokens, completionTokens, cost);
+          RequestLogRepo.finalizeUsage(traceId, promptTokens, completionTokens, cost, auth.keyId ?? null);
           if (cost > 0) ApiKeyRepo.addDailyUsage(result.keyId, cost);
           GatewayQuota.addTokens(auth.keyId || '', promptTokens + completionTokens);
         }

@@ -1,20 +1,67 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import { CONFIG } from '../config.js';
-import { authorizeGatewayKey, sendAuthError } from '../auth.js';
+import {
+  authorizeGatewayKey,
+  isProviderReachableByKey,
+  sendAuthError,
+} from '../auth.js';
 import { SmartRouter } from '../engine/router.js';
 import { decryptSecret } from '../crypto.js';
 import { TemplateMapper } from '../engine/mapper.js';
 import { CircuitBreakerManager } from '../engine/circuit-breaker.js';
 import { errorMessage } from '../errors.js';
+import { quotaRejections } from '../metrics.js';
+
+// Hop-by-hop headers (RFC 9110 §7.6.1) describe a single connection and must not be
+// relayed to the upstream; forwarding them risks response/request framing confusion.
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+// DECISION: The wildcard resolves against the provider base_url. Dot segments (literal or
+// percent-encoded, forward or backslash separated) would let the client escape the base
+// path prefix — e.g. `/v1/passthrough/p/../../admin` hitting `https://host/admin` with the
+// operator's provider credential attached — so they are rejected outright, and the final
+// URL is additionally verified to stay on the base origin under the base path.
+function resolvePassthroughTarget(baseUrl: string, wildcard: string): string | null {
+  const hasDotDot = (value: string): boolean => /(^|[\\/])\.\.([\\/]|$)/.test(value);
+  const decodedOnce = (() => {
+    try {
+      return decodeURIComponent(wildcard);
+    } catch {
+      return wildcard;
+    }
+  })();
+  if (hasDotDot(wildcard) || hasDotDot(decodedOnce)) return null;
+
+  const relative = wildcard.replace(/^[\\/]+/, '');
+  try {
+    const base = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+    const target = new URL(relative, base);
+    if (target.origin !== base.origin) return null;
+    if (!target.pathname.startsWith(base.pathname)) return null;
+    return target.toString();
+  } catch {
+    return null;
+  }
+}
 
 export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
   // DECISION: Support all HTTP methods for passthrough to accommodate arbitrary endpoints (images, audio, embeddings, fine-tuning).
   fastify.all('/v1/passthrough/:provider/*', {
     config: { rateLimit: { max: CONFIG.rateLimit.v1Max } },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    // No pool alias to scope against here: the path selects the provider directly,
-    // but rpm/tpm limits on the gateway key still apply.
+    // No pool alias to scope against here, so pool scope is enforced at the provider level:
+    // a key restricted to specific pools may only reach providers those pools target.
+    // rpm/tpm limits on the gateway key still apply.
     const auth = authorizeGatewayKey(request);
     if (!auth.authenticated) {
       return sendAuthError(reply, auth);
@@ -22,6 +69,18 @@ export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { provider } = request.params as { provider: string };
     const wildcard = (request.params as { '*'?: string })['*'] || '';
+
+    if (auth.key && !isProviderReachableByKey(auth.key, provider)) {
+      quotaRejections.inc({ scope: 'model_not_allowed' });
+      return reply.status(403).send({
+        error: {
+          message: `Gateway API key is not permitted to reach provider '${provider}'.`,
+          type: 'invalid_request_error',
+          param: null,
+          code: 'model_not_allowed',
+        },
+      });
+    }
 
     const router = SmartRouter.getInstance();
     const spec = router.getProviderSpec(provider);
@@ -31,6 +90,18 @@ export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
           message: `Provider '${provider}' not found or inactive.`,
           type: 'invalid_request_error',
           code: 'model_not_found',
+        },
+      });
+    }
+
+    const targetUrl = resolvePassthroughTarget(spec.base_url, wildcard);
+    if (!targetUrl) {
+      return reply.status(400).send({
+        error: {
+          message: 'Invalid passthrough path: it must stay within the provider base URL.',
+          type: 'invalid_request_error',
+          param: null,
+          code: 'invalid_path',
         },
       });
     }
@@ -49,14 +120,17 @@ export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
     const selectedKey = candidateKeys[0]!.key;
     const decryptedKey = decryptSecret(selectedKey.encrypted_key, selectedKey.iv, selectedKey.tag);
 
-    // Build target upstream URL
-    const targetUrl = `${spec.base_url.replace(/\/+$/, '')}/${wildcard.replace(/^\/+/, '')}`;
-
-    // Pass through headers while stripping host
+    // Pass through client headers while stripping host/auth framing and hop-by-hop headers.
     const forwardHeaders: Record<string, string> = {};
     for (const [k, v] of Object.entries(request.headers)) {
       const lower = k.toLowerCase();
-      if (lower !== 'host' && lower !== 'authorization' && lower !== 'content-length' && v) {
+      if (
+        lower !== 'host' &&
+        lower !== 'authorization' &&
+        lower !== 'content-length' &&
+        !HOP_BY_HOP_HEADERS.has(lower) &&
+        v
+      ) {
         forwardHeaders[k] = Array.isArray(v) ? v[0]! : v;
       }
     }

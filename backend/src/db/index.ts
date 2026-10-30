@@ -399,13 +399,21 @@ export const RequestLogRepo = {
 
   // Streaming responses finish after the router has already written its log row,
   // so real usage/cost is backfilled here once the upstream stream is drained.
-  finalizeUsage(traceId: string, promptTokens: number, completionTokens: number, cost: number): boolean {
+  // DECISION: The update is scoped to the requesting gateway key: trace ids can be
+  // client-supplied, so a shared trace id must never rewrite another key's metering rows.
+  finalizeUsage(
+    traceId: string,
+    promptTokens: number,
+    completionTokens: number,
+    cost: number,
+    gatewayKeyId: string | null = null
+  ): boolean {
     const db = getDb();
     const res = db.prepare(`
       UPDATE request_logs
       SET prompt_tokens = ?, completion_tokens = ?, cost = ?
-      WHERE trace_id = ?
-    `).run(promptTokens, completionTokens, cost, traceId);
+      WHERE trace_id = ? AND gateway_key_id IS ?
+    `).run(promptTokens, completionTokens, cost, traceId, gatewayKeyId);
     return res.changes > 0;
   },
 
