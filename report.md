@@ -916,7 +916,7 @@ and was never the user's production data.
 | k6 soak | 5 VUs / 10 min, instance limits raised for throughput | **17,715 requests, 0 failed**; 35,430/35,430 checks passed; p95 **4.18 ms**, max 22.48 ms; 32.9 MiB RSS after the run |
 | Rate limiter | default `RATE_LIMIT_MAX=300`/min, 100 req/s burst | **300 × `200` then 20 × `429`** in a 320-request burst; body `{"error":"Rate limit exceeded: retry in 39 seconds"}`, `Retry-After: 39`, `X-RateLimit-Remaining: 0`. k6 `ratelimit` scenario (100 req/s, 20 s): **6,003 requests**, **5,583 rate-limited (93.00%)**, **0** 5xx / server errors, **0** auth failures, all thresholds passed |
 | HA component runtime | HA 2026.10.4 container, live gateway API | Module imports; health/stats/providers/pools/keys/gateway-keys/pricing work; `/metrics` denied without an admin token |
-| HA config flow | Disposable HA container + live gateway, real flow submission | Entry reaches `loaded`: **28 entities**, **28 services**, no component errors; only the standard "custom integration not tested" warning |
+| HA config flow | Disposable HA container + live gateway, real flow submission | Entry reaches `loaded`: **28 entities**, **28 services**, no component errors; only the standard "custom integration not tested" warning. Re-run on a fresh HA instance against the final rebuilt image after the merge: same **28/28** result. |
 
 Reproduce any of these against a disposable instance:
 
