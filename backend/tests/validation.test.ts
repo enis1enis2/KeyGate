@@ -239,7 +239,7 @@ describe('Request validation and boundary hardening', () => {
       const res = await app.inject({
         method: 'GET',
         url,
-        headers: { authorization: `Bearer ${scopedToken}` },
+        headers: { authorization: `Bearer ${wildcardToken}` },
       });
       expect([400, 404], url).toContain(res.statusCode);
       if (res.statusCode === 400) {

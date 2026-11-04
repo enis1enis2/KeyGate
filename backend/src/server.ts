@@ -146,9 +146,15 @@ export async function buildServer() {
     max: CONFIG.rateLimit.globalMax,
     timeWindow: CONFIG.rateLimit.timeWindowMs,
     keyGenerator: (request) => request.ip,
-    errorResponseBuilder: (request, context) => ({
-      error: `Rate limit exceeded: retry in ${context.after}`,
-    }),
+    // DECISION: @fastify/rate-limit throws whatever the builder returns, and the global error
+    // handler only trusts `statusCode`. Returning a plain object here used to surface every
+    // rejection as a 500 with an empty body, so build a proper Error carrying the 429 (or 403 for
+    // a ban) status. The plugin has already set Retry-After/X-RateLimit-* on the reply by now.
+    errorResponseBuilder: (request, context) => {
+      const error = new Error(`Rate limit exceeded: retry in ${context.after}`) as FastifyError;
+      error.statusCode = context.statusCode;
+      return error;
+    },
   });
 
   // DECISION: CORS defaults to same-origin only. The SPA is served by this same Fastify
