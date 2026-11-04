@@ -9,7 +9,7 @@ The product has since been expanded from an n8n-focused key broker into a genera
 - **Full OpenAI surface**: `/v1/responses`, `/v1/completions`, `/v1/moderations`, `/v1/images/*`, `/v1/audio/*` (multipart), `/v1/files`, `/v1/batches` are served by one shared pipeline (`engine/proxy.ts` + `routes/openai-surface.ts`) with the same routing, failover, metering and error shaping as chat. See `DECISIONS.md` decisions 13-15.
 - **Metering & budgets**: `model_pricing` → `request_logs.cost` → daily UTC budgets for pools (`daily_token_cap`, `daily_spend_cap`) and gateway keys, enforced before dispatch. See decisions 11-12.
 - **Console**: *AI Pools* (formerly *Model Aliases*), a *Model Pricing* tab, pool scoping on gateway keys, endpoint/cost columns in request logs, and spend panels on the dashboard. See decision 16.
-- **Verified**: backend typecheck/lint/96 tests, frontend lint/typecheck/build, and a live smoke run covering every `/v1` surface against a mock upstream — all green.
+- **Verified**: backend typecheck/lint/**138 tests**, frontend lint/build/**17 tests**, Playwright **3/3**, Home Assistant config flow **28 entities / 28 services**, k6 smoke/load/soak/ratelimit (0 server errors), and a live smoke run covering every `/v1` surface against a mock upstream — all green.
 
 ### Resolved Considerations During Implementation:
 1. **ES Module & TypeScript 7 Resolution**:
@@ -46,7 +46,7 @@ The product has since been expanded from an n8n-focused key broker into a genera
 
 9. **No CI**:
    - *Status*: Resolved.
-   - *Action*: `.github/workflows/ci.yml` runs typecheck, lint, build and tests for the backend and lint + build for the frontend on every push and PR.
+   - *Action*: `.github/workflows/ci.yml` runs backend typecheck, lint, build, `test:coverage` and a production-dependency audit, plus frontend lint, build, `test:coverage` and audit, on every push and PR. Actions are pinned to commit SHAs with `permissions: contents: read`.
 
 10. **Security audit findings (unauthenticated management API, scope/quota bypasses)**:
     - *Status*: Resolved.
@@ -59,5 +59,6 @@ The product has since been expanded from an n8n-focused key broker into a genera
       5. **MEDIUM — unknown model names bypassed pool caps**: any model that matched no pool silently rode the first-active-provider fallback with no daily caps, strategy or timeout. Fixed: `resolveTargets()` returns `unresolved` → `404 model_not_found` (DECISION 13 amended).
       6. **LOW — client-controlled `x-trace-id`**: chat accepted arbitrary client trace ids used as the metering `UPDATE … WHERE trace_id` key. Fixed with format validation + `gateway_key_id` scoping in `finalizeUsage()`.
       7. **Hardening**: response security headers incl. CSP; hop-by-hop headers no longer relayed by passthrough; web-search cache TTL + 256-entry cap; `/healthz` error-text redaction; CI actions SHA-pinned with `permissions: contents: read`; unused `zod` dependency removed.
-    - *Verification*: `npm test` 122/122 (13 files), `npm run typecheck`, `npm run lint` clean for backend; frontend lint + build clean; live smoke run confirmed 401/404/400 on the fixed vectors and admin API still reachable with the token.
-    - *Noted, not defects in source* (need owner/deployment observation): rate-limit keying is per-`request.ip` — behind a reverse proxy the operator must configure trusted-proxy settings or all clients share one bucket; shared upstream accounts mean `files`/`batches` visible to any key routed to that account (pool design); the container runs as root (volume-permission trade-off); first-boot prints the generated gateway token to stdout for onboarding (protect container logs).
+    - *Verification*: `npm test` **138/138 (16 files)**, `npm run typecheck`, `npm run lint` clean for backend; frontend **17/17** tests, lint + build clean; Playwright **3/3** against the rebuilt arm64 container; HA config flow **28 entities / 28 services**; k6 smoke 180/180 checks, load/soak 0 failed requests, and ratelimit 93% 429s with 0 server errors; live smoke run confirmed 401/404/400 on the fixed vectors and the admin API is still reachable with the token.
+    - *Noted, not defects in source* (need owner/deployment observation): rate-limit keying is per-`request.ip` — behind a reverse proxy set `TRUST_PROXY` correctly or all clients share one bucket; shared upstream accounts mean `files`/`batches` visible to any key routed to that account (pool design); first-boot prints the generated gateway token to stdout for onboarding (protect container logs). The runtime image now runs as the unprivileged `node` user (uid 1000), so bind-mounted data directories must be owned by that uid.
+    - *Post-audit regression*: rate-limit rejections were returning `500 {}` because `@fastify/rate-limit` throws the builder result and the builder returned a plain object without `statusCode`. Fixed in `backend/src/server.ts` (returns an `Error` with `context.statusCode`) and covered by `backend/tests/rate-limit.test.ts`.

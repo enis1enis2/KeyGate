@@ -45,10 +45,12 @@ Open http://localhost:3000 — the management UI prompts for the admin token
 
 ### Optional: Mock upstream for offline testing
 
-```bash
-node backend/mock-dbg.mjs   # runs on port 9712
-# Point a provider spec at http://127.0.0.1:9712/v1 and test the full pipeline
-```
+The integration, proxy and security suites start an in-process OpenAI-compatible
+mock upstream (`backend/tests/integration.test.ts`, `proxy.test.ts`,
+`security.test.ts`), so `npm test` exercises the full pipeline without network
+access or real credentials. For a manual end-to-end check, point a provider spec
+at any local OpenAI-compatible mock (for example a small `node:http` server on
+port 9712) and send requests through `/v1/chat/completions`.
 
 ## What we're looking for
 
