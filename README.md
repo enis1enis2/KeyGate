@@ -8,6 +8,8 @@
 
 <p>Pool provider keys, route around failures, meter usage and enforce budgets — self-hosted as a single Node.js service with SQLite.</p>
 
+<p>Proudly Made in Türkiye</p>
+
 <p>
   <a href="https://github.com/enis1enis2/KeyGate/actions/workflows/ci.yml"><img src="https://github.com/enis1enis2/KeyGate/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/enis1enis2/KeyGate/releases/latest"><img src="https://img.shields.io/github/v/release/enis1enis2/KeyGate" alt="Latest release"></a>
