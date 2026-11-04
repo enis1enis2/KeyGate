@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import yaml from 'yaml';
 import type { ProviderAuth, ProviderSpec } from '../types/index.js';
 
@@ -148,7 +149,7 @@ export function buildProviderSpec(input: QuickAddSpecInput): BuiltQuickAddSpec {
   if (preset.style === 'anthropic') {
     const auth: ProviderAuth = { type: 'header', name: 'x-api-key', template: '{{key}}' };
     spec = {
-      id: `${slugify(input.name)}-${cryptoRandomSegment()}`,
+      id: `${slugify(input.name)}-${randomSegment()}`,
       name: input.name,
       description: input.description,
       preset: 'custom',
@@ -181,7 +182,7 @@ export function buildProviderSpec(input: QuickAddSpecInput): BuiltQuickAddSpec {
       ? { type: 'header', name: 'Authorization', template: 'Bearer {{key}}' }
       : undefined;
     spec = {
-      id: `${slugify(input.name)}-${cryptoRandomSegment()}`,
+      id: `${slugify(input.name)}-${randomSegment()}`,
       name: input.name,
       description: input.description,
       preset: 'openai-compatible',
@@ -362,6 +363,8 @@ function slugify(value: string): string {
   return slug || 'provider';
 }
 
-export function cryptoRandomSegment(): string {
-  return Math.random().toString(36).slice(2, 8);
+// Suffixes primary keys (providers, pools), so it must not be predictable from the clock or a
+// seeded PRNG. 6 base36 chars ≈ 31 bits, enough to avoid collisions inside one slug.
+function randomSegment(): string {
+  return crypto.randomBytes(4).toString('hex').slice(0, 6);
 }

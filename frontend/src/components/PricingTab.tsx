@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Plus, Trash2 } from 'lucide-react';
 import type { ModelPricing, Provider } from '../types';
 import { fetchPricing, savePricing, deletePricing, errorMessage } from '../api';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface PricingTabProps {
   providers: Provider[];
@@ -19,6 +20,8 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
   const [outputPerMtok, setOutputPerMtok] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<ModelPricing | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const load = async () => {
     setIsLoading(true);
@@ -72,11 +75,19 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this pricing row? Requests matching it will no longer incur cost.')) return;
-    await deletePricing(id);
-    await load();
-    onRefresh();
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deletePricing(pendingDelete.id);
+      setPendingDelete(null);
+      await load();
+      onRefresh();
+    } catch (err) {
+      setStatusMsg(`Error: ${errorMessage(err)}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -99,7 +110,10 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
             <h2 className="text-sm font-bold text-white uppercase tracking-wider">Add Pricing Row</h2>
           </div>
           {statusMsg && (
-            <span className={`text-xs font-medium ${statusMsg.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'}`}>
+            <span
+              role="status"
+              className={`text-xs font-medium ${statusMsg.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'}`}
+            >
               {statusMsg}
             </span>
           )}
@@ -107,8 +121,9 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div>
-            <label className="block text-[11px] text-slate-400 mb-1">Provider:</label>
+            <label htmlFor="pricing-provider" className="block text-[11px] text-slate-400 mb-1">Provider:</label>
             <select
+              id="pricing-provider"
               value={providerId}
               onChange={(e) => setProviderId(e.target.value)}
               className="w-full bg-slate-950 text-white border border-slate-800 rounded px-2.5 py-2 font-mono focus:border-indigo-500 focus:outline-none"
@@ -122,8 +137,9 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
           </div>
 
           <div>
-            <label className="block text-[11px] text-slate-400 mb-1">Model (or * for any):</label>
+            <label htmlFor="pricing-model" className="block text-[11px] text-slate-400 mb-1">Model (or * for any):</label>
             <input
+              id="pricing-model"
               type="text"
               value={model}
               onChange={(e) => setModel(e.target.value)}
@@ -133,8 +149,9 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
           </div>
 
           <div>
-            <label className="block text-[11px] text-slate-400 mb-1">Input $ / Mtok:</label>
+            <label htmlFor="pricing-input" className="block text-[11px] text-slate-400 mb-1">Input $ / Mtok:</label>
             <input
+              id="pricing-input"
               type="number"
               step="0.01"
               value={inputPerMtok}
@@ -145,8 +162,9 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
           </div>
 
           <div>
-            <label className="block text-[11px] text-slate-400 mb-1">Output $ / Mtok:</label>
+            <label htmlFor="pricing-output" className="block text-[11px] text-slate-400 mb-1">Output $ / Mtok:</label>
             <input
+              id="pricing-output"
               type="number"
               step="0.01"
               value={outputPerMtok}
@@ -202,9 +220,10 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
                     <td className="py-3 px-4 text-right text-slate-300">{r.output_per_mtok.toFixed(4)}</td>
                     <td className="py-3 px-4 text-right">
                       <button
-                        onClick={() => handleDelete(r.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-400 rounded transition-colors"
+                        onClick={() => setPendingDelete(r)}
+                        className="min-h-6 min-w-6 inline-flex items-center justify-center p-1.5 text-slate-400 hover:text-rose-400 rounded transition-colors"
                         title="Delete Pricing"
+                        aria-label={`Delete pricing for ${r.provider_id} ${r.model}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -216,6 +235,25 @@ export const PricingTab: React.FC<PricingTabProps> = ({ providers, onRefresh }) 
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete pricing row?"
+        message={
+          <>
+            Requests matching{' '}
+            <span className="font-mono text-white">
+              {pendingDelete?.provider_id} / {pendingDelete?.model}
+            </span>{' '}
+            will no longer be metered for cost.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={isDeleting}
+        onConfirm={() => { void handleDelete(); }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 };

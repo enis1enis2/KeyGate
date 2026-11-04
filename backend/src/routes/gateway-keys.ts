@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import crypto from 'crypto';
 import { GatewayKeyRepo } from '../db/index.js';
 import { generateGatewayToken } from '../crypto.js';
+import { idParams, nonNegativeInteger, trimmedString } from './schemas.js';
 
 export const gatewayKeysRoutes: FastifyPluginAsync = async (fastify) => {
   // List all gateway keys
@@ -22,7 +23,25 @@ export const gatewayKeysRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Generate new gateway key
-  fastify.post('/api/gateway-keys', async (request, reply) => {
+  fastify.post('/api/gateway-keys', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: trimmedString(100),
+          rpm_limit: nonNegativeInteger,
+          tpm_limit: nonNegativeInteger,
+          allowed_aliases: {
+            type: 'array',
+            maxItems: 200,
+            items: trimmedString(200),
+          },
+          expires_in_days: { type: 'integer', minimum: 0, maximum: 36500 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as {
       name: string;
       rpm_limit?: number;
@@ -62,14 +81,14 @@ export const gatewayKeysRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Revoke key
-  fastify.post('/api/gateway-keys/:id/revoke', async (request, reply) => {
+  fastify.post('/api/gateway-keys/:id/revoke', { schema: { params: idParams } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const revoked = GatewayKeyRepo.revoke(id);
     return reply.send({ success: revoked });
   });
 
   // Delete key
-  fastify.delete('/api/gateway-keys/:id', async (request, reply) => {
+  fastify.delete('/api/gateway-keys/:id', { schema: { params: idParams } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const deleted = GatewayKeyRepo.delete(id);
     return reply.send({ success: deleted });

@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/enis1enis2/KeyGate?logo=github)](https://github.com/enis1enis2/KeyGate/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/enis1enis2/KeyGate/ci.yml?branch=main&logo=github)](.github/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-122%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)]()
 [![License](https://img.shields.io/github/license/enis1enis2/KeyGate)](LICENSE)
 [![Fastify](https://img.shields.io/badge/Fastify-v5-black.svg)]()
 [![React](https://img.shields.io/badge/React-19-cyan.svg)]()
@@ -36,18 +36,29 @@
    cd keygate
    ```
 
-2. Copy environment file and configure secrets:
+2. Create your environment file and generate two real secrets:
    ```bash
    cp .env.example .env
-   # Edit .env and set:
-   #   KEYGATE_MASTER_KEY  - 32+ char secret used to encrypt upstream keys at rest
-   #   KEYGATE_ADMIN_TOKEN  - bearer token for the management API (/api/*) and /metrics
-   # Both are REQUIRED when NODE_ENV=production; KeyGate refuses to boot without them.
+   KEYGATE_MASTER_KEY=$(openssl rand -hex 32)
+   KEYGATE_ADMIN_TOKEN=$(openssl rand -hex 32)
+   # Append them to .env (they are deliberately empty in .env.example):
+   printf 'KEYGATE_MASTER_KEY=%s\nKEYGATE_ADMIN_TOKEN=%s\n' \
+     "$KEYGATE_MASTER_KEY" "$KEYGATE_ADMIN_TOKEN" >> .env
    ```
+   `KEYGATE_MASTER_KEY` (at least 16 chars) encrypts upstream keys at rest;
+   `KEYGATE_ADMIN_TOKEN` protects the management API (`/api/*`) and `/metrics`.
+   Both are **required** when `NODE_ENV=production`, and KeyGate refuses to boot
+   with a missing, too-short, or placeholder-looking secret. Keep them in a
+   password manager — losing the master key makes stored upstream keys unreadable.
 
 3. Start KeyGate with Docker Compose:
    ```bash
    docker-compose up -d --build
+   ```
+   The image runs as the unprivileged `node` user (uid 1000). On Linux, create the bind-mounted
+   data directory with matching ownership before the first start:
+   ```bash
+   mkdir -p data && sudo chown -R 1000:1000 data
    ```
 
 4. Open your browser:
@@ -86,6 +97,43 @@ npm run typecheck   # tsc for src/ and tests/
 npm run lint        # oxlint
 npm test            # vitest (isolated temp DB, never touches data/)
 ```
+
+Frontend checks:
+
+```bash
+cd frontend
+npm run lint
+npm test            # vitest + Testing Library (jsdom)
+npm run build
+```
+
+End-to-end and load testing need a **disposable running instance**:
+
+```bash
+# Playwright smoke: login, tab navigation, gateway-key create/revoke/delete
+cd frontend
+npm run test:e2e:install
+KEYGATE_E2E_URL=http://127.0.0.1:3000 KEYGATE_E2E_ADMIN_TOKEN=... npm run test:e2e
+
+# k6 load/soak (SCENARIO=smoke|load|ratelimit|soak)
+docker run --rm --network host \
+  -e BASE_URL=http://127.0.0.1:3000 \
+  -e ADMIN_TOKEN=... -e GATEWAY_KEY=kg-live-... -e SCENARIO=soak \
+  -v "$PWD/load-tests:/scripts" grafana/k6 run /scripts/keygate.js
+```
+
+The Playwright suite mutates the target (creates and deletes a gateway key), so never point
+it at production.
+
+`429` is an expected answer under load because the gateway rate-limits by design (see
+`RATE_LIMIT_MAX` / `RATE_LIMIT_V1_MAX`). The k6 script accepts it; run the `ratelimit`
+scenario to prove the limiter engages, and raise the limits on a disposable instance when
+you want raw throughput numbers.
+
+For the Strix autonomous API pentest (OWASP API Top 10), see
+[`docs/security-testing.md`](docs/security-testing.md). It needs an LLM provider key and
+Docker, and should only target a disposable instance.
+
 The test suite includes:
 - Unit tests for template mapping, JSONata expressions, and streaming chunk translation
 - Unit tests for the sliding window circuit breaker, backoff, and Retry-After
@@ -93,8 +141,10 @@ The test suite includes:
 - Unit tests for quota slots, pool caps, daily budgets, pricing and cost metering
 - Integration test running an in-process mock non-standard upstream HTTP server with streaming and failover
 - Integration test for the shared proxy pipeline: every `/v1` surface (responses, completions, images, audio, files, batches), multipart re-serialization, sticky routes, pool scoping, budget blocks and error envelopes
+- Boundary tests for request validation (non-numeric/negative caps → `400`), unauthenticated admin writes (`401`), security headers, passthrough path traversal and gateway-key pool scope (`403`), plus the generated OpenAPI document
+- Frontend component tests for modal focus management, Escape/backdrop close, confirmation states, `sessionStorage` token handling and the 401 broadcast
 
-Tests run against a throwaway SQLite database in the OS temp directory (`tests/setup.ts`), so local data is never modified.
+Tests run against a throwaway SQLite database in the OS temp directory (`tests/setup.ts`), so local data is never modified. Backend and frontend coverage are both gated in their `vitest.config.ts`, so a regression below the baseline fails CI.
 
 Frontend:
 ```bash
@@ -126,10 +176,10 @@ All routes require `Authorization: Bearer kg-live-...` (unless `KEYGATE_REQUIRE_
 | `/v1/files` (+ `/:id`, `/:id/content`) | `GET`, `POST` | File upload/list/retrieve, pinned to the creating upstream account |
 | `/v1/batches` (+ `/:id`, `/:id/cancel`) | `GET`, `POST` | Batch jobs, pinned to the creating upstream account |
 | `/v1/models` | `GET` | Lists the pools this gateway key may use |
-| `/v1/passthrough/{provider}/*` | `ANY` | Injects the healthiest key into raw requests for anything else (confined to the provider's base URL; pool-scoped keys only reach providers their pools target) |
+| `/v1/passthrough/{provider}/*` | `ANY` | Injects the healthiest key into raw requests for anything else (confined to the provider base URL; pool-scoped keys only reach providers their pools target) |
 
 ### Management API (`/api`)
-All `/api/*` routes and `/metrics` require `Authorization: Bearer <KEYGATE_ADMIN_TOKEN>`. The Management UI prompts for this token and stores it in `localStorage`.
+All `/api/*` routes and `/metrics` require `Authorization: Bearer <KEYGATE_ADMIN_TOKEN>`. The Management UI prompts for this token and keeps it in `sessionStorage`, so it is discarded when the tab closes. The API contract is generated from the route JSON Schemas and served as OpenAPI 3.1 at `GET /api/openapi.json` (admin token required).
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
@@ -184,25 +234,34 @@ KeyGate (/v1/chat/completions)
 
 - **Encrypted at Rest**: Keys are encrypted with **AES-256-GCM** using unique IVs and authenticated tags.
 - **Zero Key Leakage**: Sensitive credentials are never logged and never returned in full (masked as `prefix...suffix`).
-- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`, checked against the **normalized** request path (percent-encoded and absolute-form targets included) before routing. **Audit fix**: Guards now use `normalizedPathname()` so percent-encoded (`/%61pi/keys`) and absolute-form (`GET http://host/api/keys`) targets are normalized before comparison.
-- **Pre-Auth Data Plane**: the gateway bearer token is verified for `/v1/*` before any request body is parsed or buffered, so unauthenticated callers cannot drive upload buffering. **Audit fix**: Added `/v1/*` onRequest hook that authenticates the gateway token before Fastify parses/buffers any body.
-- **Scoped Model Routing**: a `model` that matches no AI pool answers `404 model_not_found` instead of silently falling back to the first provider, so pool daily caps cannot be bypassed with an unknown model name. **Audit fix**: `resolveTargets()` returns `unresolved` → `404 model_not_found` for unknown models.
-- **Passthrough Path Confinement**: `/v1/passthrough/:provider/*` resolves its wildcard against the provider `base_url` with `new URL()`, rejects dot segments (literal or percent-encoded, `/` or `\\`) and verifies origin + base-path prefix, so a gateway key cannot escape the provider's base path and hit other endpoints on the provider host with the operator's credential attached. **Audit fix**: Dot-segment rejection + origin/base-path verification; hop-by-hop headers no longer relayed upstream.
-- **Passthrough Pool Scope**: a gateway key with an explicit pool scope may only reach providers that at least one of its allowed pools targets (`isProviderReachableByKey`); `['*']` keys behave as before. **Audit fix**: Previously passthrough skipped the scope check entirely; now keys restricted to specific pools get 403 `model_not_allowed` outside their pools.
-- **Baseline Response Headers**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, and a CSP (`script-src 'self'`, `frame-ancestors 'none'`, …) verified against the production bundle (external module script only, no inline script/style, no external fetches). **Audit fix**: Added as part of the Cloudflare security-audit-skill hardening pass.
-- **Client Trace-Id Validation**: client `x-trace-id` accepted when matching `^[A-Za-z0-9._:-]{8,64}$`; `finalizeUsage()` scoped by `gateway_key_id IS ?` so one key's stream can never rewrite another key's metering rows. **Audit fix**: Format validation + key-id scoping in metering.
-- **Web-Search Cache**: bounded by TTL + 256-entry cap (query cardinality is attacker-influenceable). **Audit fix**: TTL + oldest-first eviction cap added.
-- **Health Probe Redaction**: `/healthz` no longer echoes driver error text to anonymous callers. **Audit fix**: Error text redacted.
-- **CI Integrity**: actions pinned to full commit SHAs with `permissions: contents: read`; unused `zod` dependency removed. **Audit fix**: SHA pins + permissions added.
+- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`.
+- **Fail-Fast Secrets**: `KEYGATE_MASTER_KEY` / `KEYGATE_ADMIN_TOKEN` are mandatory under `NODE_ENV=production`.
+- **Rate Limiting**: Global cap plus a tighter per-route cap on `/v1/*` (`RATE_LIMIT_MAX`, `RATE_LIMIT_V1_MAX`, `RATE_LIMIT_WINDOW_MS`).
+- **Quotas Enforced Before Dispatch**: gateway-key rpm/tpm slots, pool daily token/spend caps and API-key daily budgets are all checked *before* an upstream call; violations answer `429 quota_exhausted` with `Retry-After` instead of burning money.
+- **Same-Origin by Default**: No CORS headers unless `CORS_ORIGINS` explicitly lists allowed origins.
+- **Security Headers**: Every response carries a strict CSP (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, COOP/CORP and a permissions policy. HSTS is emitted on HTTPS responses in production (`ENABLE_HSTS=false` opts out).
+- **Passthrough Hardening**: `/v1/passthrough/*` forwards only allowlisted request/response headers, rejects traversal segments (including percent-encoded and double-encoded dots), keeps the final URL on the provider origin, and enforces gateway-key pool scope before the provider lookup.
+- **Session Expiry**: The UI signs out automatically on a `401` from the management API.
+- **Normalized Admin Guards**: `/api/*` and `/metrics` authorization compares the *normalized* pathname, so percent-encoded (`/%61pi/keys`) and absolute-form request targets cannot slip past the guard while the router still resolves them.
+- **Pre-Auth Data Plane**: the gateway bearer token is verified for `/v1/*` in an `onRequest` hook before Fastify parses or buffers a request body, so unauthenticated callers cannot drive upload buffering.
+- **Scoped Model Routing**: an unknown `model` answers `404 model_not_found` instead of silently falling back to the first provider, so pool caps, strategy and timeout cannot be bypassed.
+- **Metering Isolation**: client `x-trace-id` is format-validated and usage finalization is scoped by `gateway_key_id`, so one key's stream cannot rewrite another key's metering rows.
+- **Health Probe Redaction**: `/healthz` reports coarse status only and logs driver details server-side instead of echoing them to anonymous callers.
+- **History is Opt-Out**: Prompt/completion history is stored per pool by default; set `HISTORY_ENABLED=false` on shared deployments to stop writing it.
+- **Data Retention**: Request trace logs and metrics are retained for 30 days and automatically pruned by a background task.
 
 ### Environment Variables
 
 | Variable | Default | Purpose |
 | :--- | :--- | :--- |
 | `KEYGATE_MASTER_KEY` | *required in prod* | AES-256-GCM key for stored upstream keys |
+| `KEYGATE_MASTER_KEY_PREVIOUS` | *(empty)* | Comma-separated retired master keys accepted for decryption only, for rotation |
 | `KEYGATE_ADMIN_TOKEN` | *required in prod* | Bearer token for `/api/*` and `/metrics` |
-| `KEYGATE_REQUIRE_AUTH` | `true` | Gateway Bearer token checks on `/v1/*` |
+| `KEYGATE_REQUIRE_AUTH` | `true` | Gateway Bearer token checks on `/v1/*` (refused when `NODE_ENV=production` and set to `false`) |
 | `KEYGATE_DB_PATH` | `./data/keygate.sqlite` | SQLite database location |
+| `TRUST_PROXY` | `false` | `true` or comma-separated proxy addresses/CIDRs; required for correct client IPs behind a reverse proxy |
+| `HISTORY_ENABLED` | `true` | Capture per-pool prompt/completion history; set `false` to stop writing it |
+| `ENABLE_HSTS` | `true` in prod | Emit `Strict-Transport-Security` on HTTPS responses |
 | `CORS_ORIGINS` | *(empty)* | Comma-separated allowed origins; empty = same-origin only |
 | `RATE_LIMIT_MAX` | `300` | Global requests per window |
 | `RATE_LIMIT_V1_MAX` | `120` | Per-window cap for `/v1/*` routes |
@@ -210,6 +269,23 @@ KeyGate (/v1/chat/completions)
 | `METRICS_RETENTION_DAYS` | `30` | Log/metric retention |
 | `MAX_UPLOAD_BYTES` | `67108864` | Max multipart upload size (bytes) for audio/image/file routes |
 | `DEFAULT_TIMEOUT_MS` | `30000` | Default per-request upstream timeout (pools may override) |
+
+### Rotating the master key
+
+Upstream keys are encrypted with the current `KEYGATE_MASTER_KEY`. Rotation is a two-key
+operation so the gateway stays online:
+
+1. Generate a replacement: `openssl rand -hex 32`.
+2. Set `KEYGATE_MASTER_KEY` to the new value and `KEYGATE_MASTER_KEY_PREVIOUS` to the old one,
+   then restart KeyGate. Decryption keeps working because both keys are tried.
+3. Re-encrypt every row with the new key:
+   - dev checkout: `cd backend && npm run reencrypt`
+   - Docker: `docker compose exec keygate node dist/reencrypt.js`
+4. Remove `KEYGATE_MASTER_KEY_PREVIOUS` and restart.
+
+The script is idempotent, skips rows already on the current key generation, and reports (without
+printing secrets) any row it cannot decrypt. Each row records its `key_version` so operators can
+verify the migration.
 
 ---
 

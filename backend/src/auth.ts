@@ -24,8 +24,11 @@ export interface AuthResult {
 
 function readBearerToken(request: FastifyRequest): string | null {
   const header = request.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) return null;
-  const token = header.slice(7).trim();
+  if (!header) return null;
+  // RFC 9110: auth schemes are case-insensitive, so `bearer x` and `BEARER x` are valid.
+  const match = /^Bearer[ \t]+(.+)$/i.exec(header.trim());
+  if (!match?.[1]) return null;
+  const token = match[1].trim();
   return token.length > 0 ? token : null;
 }
 
@@ -81,25 +84,47 @@ export function authenticateGatewayKey(request: FastifyRequest): AuthResult {
   return { authenticated: true, keyId: keyRecord.id, key: keyRecord };
 }
 
+function parseAllowedAliases(key: GatewayKeyRecord): string[] | null {
+  try {
+    const allowed = JSON.parse(key.allowed_aliases_json);
+    return Array.isArray(allowed) ? allowed.filter((v): v is string => typeof v === 'string') : null;
+  } catch {
+    return null;
+  }
+}
+
 // Scope: a gateway key may only reach the pools named in allowed_aliases_json,
 // where ["*"] (the default) means "every pool".
 export function isAliasAllowed(key: GatewayKeyRecord, aliasName: string): boolean {
-  let allowed: unknown;
-  try {
-    allowed = JSON.parse(key.allowed_aliases_json);
-  } catch {
-    return false;
-  }
-  if (!Array.isArray(allowed) || allowed.length === 0) return false;
+  const allowed = parseAllowedAliases(key);
+  if (!allowed || allowed.length === 0) return false;
   if (allowed.includes('*')) return true;
   return allowed.includes(aliasName);
+}
+
+// A wildcard key is not scoped to any named pool: it may reach every pool and every
+// provider, which is what the passthrough surface needs for resources that no pool targets.
+export function isWildcardKey(key: GatewayKeyRecord): boolean {
+  return parseAllowedAliases(key)?.includes('*') ?? false;
+}
+
+interface AuthorizeOptions {
+  /** Single pool (model alias) the request resolves to. */
+  alias?: string;
+  /**
+   * Every pool that targets the selected provider. An empty list means the provider is not
+   * part of any pool, so only wildcard keys may reach it.
+   */
+  aliases?: string[];
+  /** Overrides the denial message so each surface can name what was denied. */
+  scopeError?: string;
 }
 
 // Full data-plane authorization: authenticate, verify pool scope, then atomically
 // reserve a rate-limit slot. Call exactly once per inbound /v1 request.
 export function authorizeGatewayKey(
   request: FastifyRequest,
-  opts?: { alias?: string }
+  opts?: AuthorizeOptions
 ): AuthResult {
   const auth = authenticateGatewayKey(request);
   if (!auth.authenticated || !auth.key) return auth;
@@ -109,8 +134,21 @@ export function authorizeGatewayKey(
   if (opts?.alias && !isAliasAllowed(key, opts.alias)) {
     return denialResult(
       'model_not_allowed',
-      `Gateway API key is not permitted to use model '${opts.alias}'.`
+      opts.scopeError ?? `Gateway API key is not permitted to use model '${opts.alias}'.`
     );
+  }
+
+  if (opts?.aliases) {
+    const permitted =
+      opts.aliases.length === 0
+        ? isWildcardKey(key)
+        : opts.aliases.some((alias) => isAliasAllowed(key, alias));
+    if (!permitted) {
+      return denialResult(
+        'model_not_allowed',
+        opts.scopeError ?? 'Gateway API key is not permitted to use this provider.'
+      );
+    }
   }
 
   const quotaDenial = GatewayQuota.reserve(key);

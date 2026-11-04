@@ -108,6 +108,7 @@ npm test            # vitest (isolated temp DB, never touches data/)
 
 # frontend
 npm run lint        # oxlint
+npm test            # vitest + Testing Library (jsdom)
 npm run build       # tsc -b + vite build → ../backend/public
 ```
 
@@ -115,6 +116,9 @@ npm run build       # tsc -b + vite build → ../backend/public
 
 - Backend tests use an **isolated throwaway SQLite database** in the OS temp
   directory (`backend/tests/setup.ts`) — your local `data/` is never touched.
+- Frontend tests run in jsdom and cover the shared dialogs (`Modal`,
+  `ConfirmDialog`) and the API client. Add a component test when you change
+  either.
 - Add a test for every bugfix. The suite currently covers:
   - Template mapping, JSONata expressions, and streaming chunk translation
   - Sliding window circuit breaker, backoff, and Retry-Ahead
@@ -125,8 +129,19 @@ npm run build       # tsc -b + vite build → ../backend/public
     pool scoping, budget blocks and error envelopes
   - Integration test against an in-process mock non-standard upstream HTTP
     server with streaming and failover
-- CI runs backend typecheck/lint/test and frontend lint/build on every push and
-  PR (`.github/workflows/ci.yml`).
+- CI runs backend typecheck/lint/test and frontend lint/test/build on every push
+  and PR (`.github/workflows/ci.yml`).
+
+Optional but recommended for behaviour changes:
+
+```bash
+cd frontend
+npm run test:e2e      # Playwright; needs a disposable instance + admin token
+```
+
+Load/soak profiles live in `load-tests/keygate.js` (k6), and the autonomous API
+pentest runbook is in `docs/security-testing.md` (Strix, needs an LLM key).
+Both mutate or stress the target, so point them only at a disposable instance.
 
 ## The provider-spec model
 

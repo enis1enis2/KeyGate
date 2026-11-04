@@ -9,7 +9,7 @@ The product has since been expanded from an n8n-focused key broker into a genera
 - **Full OpenAI surface**: `/v1/responses`, `/v1/completions`, `/v1/moderations`, `/v1/images/*`, `/v1/audio/*` (multipart), `/v1/files`, `/v1/batches` are served by one shared pipeline (`engine/proxy.ts` + `routes/openai-surface.ts`) with the same routing, failover, metering and error shaping as chat. See `DECISIONS.md` decisions 13-15.
 - **Metering & budgets**: `model_pricing` → `request_logs.cost` → daily UTC budgets for pools (`daily_token_cap`, `daily_spend_cap`) and gateway keys, enforced before dispatch. See decisions 11-12.
 - **Console**: *AI Pools* (formerly *Model Aliases*), a *Model Pricing* tab, pool scoping on gateway keys, endpoint/cost columns in request logs, and spend panels on the dashboard. See decision 16.
-- **Verified**: backend typecheck/lint/44 tests, frontend lint/typecheck/build, and a live smoke run covering every `/v1` surface against a mock upstream — all green.
+- **Verified**: backend typecheck/lint/96 tests, frontend lint/typecheck/build, and a live smoke run covering every `/v1` surface against a mock upstream — all green.
 
 ### Resolved Considerations During Implementation:
 1. **ES Module & TypeScript 7 Resolution**:

@@ -8,6 +8,7 @@ import { PROVIDER_PRESETS, buildProviderSpec, getPreset, scanProviderBase } from
 import { encryptSecret, maskKey } from '../crypto.js';
 import type { ProviderSpec, OpenAIChatRequest, OpenAIChatResponse } from '../types/index.js';
 import { errorMessage } from '../errors.js';
+import { idParams, trimmedString } from './schemas.js';
 
 export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   // List all providers
@@ -30,7 +31,21 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create or update provider
-  fastify.post('/api/providers', async (request, reply) => {
+  fastify.post('/api/providers', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['spec_yaml'],
+        properties: {
+          id: trimmedString(200),
+          name: trimmedString(200),
+          description: { type: 'string', maxLength: 2000 },
+          preset: trimmedString(100),
+          spec_yaml: trimmedString(1_000_000),
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as {
       id?: string;
       name?: string;
@@ -65,14 +80,25 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Delete provider
-  fastify.delete('/api/providers/:id', async (request, reply) => {
+  fastify.delete('/api/providers/:id', { schema: { params: idParams } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const deleted = ProviderRepo.delete(id);
     return reply.send({ success: deleted });
   });
 
   // DECISION: Curl wizard endpoint auto-drafts complete YAML spec from curl command + optional response JSON.
-  fastify.post('/api/providers/wizard/draft', async (request, reply) => {
+  fastify.post('/api/providers/wizard/draft', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['curl_command'],
+        properties: {
+          curl_command: trimmedString(20_000),
+          sample_response: { type: 'string', maxLength: 1_000_000 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as { curl_command: string; sample_response?: string };
     if (!body || !body.curl_command) {
       return reply.status(400).send({ error: 'Missing curl_command parameter.' });
@@ -88,7 +114,19 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
 
   // DECISION: Quick-Add scanner probes a base URL's model/chat endpoints so the wizard can
   // auto-assign base_url + chat path and prefill the allowed model list.
-  fastify.post('/api/providers/scan', async (request, reply) => {
+  fastify.post('/api/providers/scan', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['base_url'],
+        properties: {
+          preset: trimmedString(100),
+          base_url: trimmedString(2048),
+          api_key: { type: 'string', maxLength: 8192 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as { preset?: string; base_url?: string; api_key?: string };
     if (!body || !body.base_url?.trim()) {
       return reply.status(400).send({ error: 'Missing base_url parameter.' });
@@ -108,7 +146,26 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
 
   // DECISION: Quick-Add creates provider spec + encrypted upstream key + pool alias in one call.
   // This is the primary "add a model" flow; the cURL/YAML wizard stays available as the advanced method.
-  fastify.post('/api/providers/quick-add', async (request, reply) => {
+  fastify.post('/api/providers/quick-add', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name', 'base_url', 'model'],
+        properties: {
+          name: trimmedString(200),
+          preset: trimmedString(100),
+          base_url: trimmedString(2048),
+          model: trimmedString(300),
+          api_key: { type: 'string', maxLength: 8192 },
+          description: { type: 'string', maxLength: 2000 },
+          pool_name: trimmedString(200),
+          chat_path: trimmedString(2048),
+          preserveRoot: { type: 'boolean' },
+          timeout_ms: { type: 'integer', minimum: 1, maximum: 600000 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as {
       name: string;
       preset: string;
@@ -201,7 +258,20 @@ export const providersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // DECISION: Live Test button allows inspecting mapped request and actual upstream response in real-time.
-  fastify.post('/api/providers/test', async (request, reply) => {
+  fastify.post('/api/providers/test', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['spec_yaml', 'test_key'],
+        properties: {
+          spec_yaml: trimmedString(1_000_000),
+          test_key: trimmedString(8192),
+          prompt: { type: 'string', maxLength: 100_000 },
+          model: trimmedString(300),
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as {
       spec_yaml: string;
       test_key: string;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { AdminLogin } from './components/AdminLogin';
 import { DashboardTab } from './components/DashboardTab';
@@ -29,6 +29,19 @@ import type {
   GatewayKey 
 } from './types';
 
+const POLL_INTERVAL_MS = 15_000;
+
+// DECISION: A backgrounded console tab used to poll five endpoints every 5 seconds forever.
+// The refresh loop now runs only while the tab is visible, at a calmer cadence, aborts the
+// previous cycle instead of stacking requests, and surfaces staleness so the operator can tell
+// live data from a frozen screen.
+function orFallback<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  return promise.catch((err: unknown) => {
+    if (err instanceof UnauthorizedError) throw err;
+    return fallback;
+  });
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -39,38 +52,47 @@ export function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [needsAuth, setNeedsAuth] = useState(() => !getAdminToken());
   const [authError, setAuthError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isStale, setIsStale] = useState(false);
 
-  const loadData = () => {
-    if (!getAdminToken()) return Promise.resolve();
+  const runLoad = useCallback(async (signal?: AbortSignal) => {
+    if (!getAdminToken()) return;
 
-    return Promise.all([
-      fetchStats().catch(() => null),
-      fetchProviders().catch(() => []),
-      fetchKeys().catch(() => []),
-      fetchAliases().catch(() => []),
-      fetchGatewayKeys().catch(() => []),
-    ])
-      .then(([s, p, k, a, g]) => {
-        if (s) setStats(s);
-        setProviders(p);
-        setKeys(k);
-        setAliases(a);
-        setGatewayKeys(g);
-        setNeedsAuth(false);
-        setAuthError(null);
-      })
-      .catch((err: unknown) => {
-        if (err instanceof UnauthorizedError) {
-          setAuthError(err.message);
-          setNeedsAuth(true);
-          return;
-        }
-        console.error('Failed to load gateway data:', err);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  };
+    try {
+      const [s, p, k, a, g] = await Promise.all([
+        orFallback(fetchStats({ signal }), null),
+        orFallback(fetchProviders({ signal }), []),
+        orFallback(fetchKeys({ signal }), []),
+        orFallback(fetchAliases({ signal }), []),
+        orFallback(fetchGatewayKeys({ signal }), []),
+      ]);
+      if (signal?.aborted) return;
+      if (s) setStats(s);
+      setProviders(p);
+      setKeys(k);
+      setAliases(a);
+      setGatewayKeys(g);
+      setNeedsAuth(false);
+      setAuthError(null);
+      setIsStale(false);
+      setLastUpdated(new Date());
+    } catch (err) {
+      if (signal?.aborted) return;
+      if (err instanceof UnauthorizedError) {
+        setAuthError(err.message);
+        setNeedsAuth(true);
+        return;
+      }
+      console.error('Failed to load gateway data:', err);
+      setIsStale(true);
+    } finally {
+      if (!signal?.aborted) setIsLoading(false);
+    }
+  }, []);
+
+  const loadData = useCallback(() => {
+    void runLoad();
+  }, [runLoad]);
 
   const handleAuthenticated = () => {
     setIsLoading(true);
@@ -78,18 +100,64 @@ export function App() {
   };
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 5000);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
+
+    const schedule = () => {
+      if (cancelled) return;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => { void tick(); }, POLL_INTERVAL_MS);
+    };
+
+    const tick = async () => {
+      timer = null;
+      if (cancelled) return;
+      // A hidden tab has nobody watching it; refresh immediately when it becomes visible again.
+      if (document.visibilityState !== 'visible') return;
+
+      controller?.abort();
+      controller = new AbortController();
+      await runLoad(controller.signal);
+      if (!cancelled) schedule();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        void tick();
+      } else if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const onOnline = () => {
+      if (!cancelled) void tick();
+    };
+
+    void tick();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', onOnline);
+
     const unsubscribe = subscribeToUnauthorized((message) => {
       setAuthError(message);
       setNeedsAuth(true);
       setIsLoading(false);
     });
+
     return () => {
-      clearInterval(interval);
+      cancelled = true;
+      if (timer !== null) clearTimeout(timer);
+      controller?.abort();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('online', onOnline);
       unsubscribe();
     };
-  }, []);
+  }, [runLoad]);
 
   if (needsAuth) {
     return <AdminLogin error={authError} onAuthenticated={handleAuthenticated} />;
@@ -197,9 +265,16 @@ export function App() {
           </div>
 
           <div className="flex items-center gap-4 font-mono">
-            <a href="/healthz" target="_blank" className="hover:text-indigo-400 transition-colors">/healthz</a>
-            <a href="/metrics" target="_blank" className="hover:text-indigo-400 transition-colors">/metrics</a>
-            <a href="/v1/models" target="_blank" className="hover:text-indigo-400 transition-colors">/v1/models</a>
+            <span aria-live="polite" className="text-slate-400">
+              {isStale ? (
+                <span className="text-amber-400">Reconnecting…</span>
+              ) : lastUpdated ? (
+                `Updated ${lastUpdated.toLocaleTimeString()}`
+              ) : null}
+            </span>
+            <a href="/healthz" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/healthz</a>
+            <a href="/metrics" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/metrics</a>
+            <a href="/v1/models" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/v1/models</a>
           </div>
         </div>
       </footer>

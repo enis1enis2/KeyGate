@@ -12,6 +12,13 @@ interface Bucket {
 // mirroring the upstream key rate limiter in circuit-breaker.ts. Limits are per KeyGate process
 // (single-process deployment); they are deliberately not persisted, because counters reset on
 // restart and callers are never harmed by an over-permissive restart window.
+//
+// KNOWN LIMITS (documented rather than fixed, to keep the hot path allocation-free):
+//   * Fixed windows allow a 2× burst across a boundary: a client can spend the full budget at
+//     the end of one minute and again at the start of the next.
+//   * Tokens are charged by addTokens() after the upstream response, so concurrent in-flight
+//     requests can all pass the admission check before any of them is billed. rpm is reserved
+//     atomically, tpm is best-effort. Use an upstream-side limit for hard token guarantees.
 export class GatewayQuota {
   private static buckets = new Map<string, Bucket>();
 

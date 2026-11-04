@@ -1,4 +1,6 @@
 // DECISION: SQLite with WAL mode delivers high concurrency for gateway proxying while remaining zero-dependency for self-hosting.
+// Column list below is the current schema. migrations.ts still contains additive ALTERs so databases
+// created by older builds gain these columns; fresh databases get them directly here.
 
 export const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -37,16 +39,23 @@ CREATE TABLE IF NOT EXISTS api_keys (
   cooldown_until INTEGER NOT NULL DEFAULT 0,
   disabled_reason TEXT,
   last_error TEXT,
+  key_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_provider_id ON api_keys(provider_id);
 
 CREATE TABLE IF NOT EXISTS model_aliases (
   id TEXT PRIMARY KEY,
   alias_name TEXT NOT NULL UNIQUE,
   strategy TEXT NOT NULL DEFAULT 'weighted-by-health',
   targets_json TEXT NOT NULL DEFAULT '[]',
+  description TEXT,
+  endpoint_kind TEXT NOT NULL DEFAULT 'chat',
+  daily_token_cap INTEGER NOT NULL DEFAULT 0,
+  daily_spend_cap REAL NOT NULL DEFAULT 0,
   hedging_enabled INTEGER NOT NULL DEFAULT 0,
   hedged_delay_ms INTEGER NOT NULL DEFAULT 500,
   timeout_ms INTEGER NOT NULL DEFAULT 30000,
@@ -83,6 +92,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
   trace_id TEXT NOT NULL,
   gateway_key_id TEXT,
   alias_name TEXT,
+  pool_name TEXT,
   provider_id TEXT NOT NULL,
   key_id TEXT NOT NULL,
   model TEXT NOT NULL,
@@ -96,6 +106,8 @@ CREATE TABLE IF NOT EXISTS request_logs (
   is_hedged INTEGER NOT NULL DEFAULT 0,
   request_snippet TEXT,
   response_snippet TEXT,
+  endpoint TEXT NOT NULL DEFAULT 'chat',
+  cost REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -151,4 +163,5 @@ CREATE TABLE IF NOT EXISTS chat_history (
 
 CREATE INDEX IF NOT EXISTS idx_chat_history_pool_created ON chat_history(pool_name, created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_history_created ON chat_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_history_trace_id ON chat_history(trace_id);
 `;

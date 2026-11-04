@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import type { ChatHistoryEntry, HistoryPoolSummary } from '../types';
 import { clearHistory, deleteHistoryEntry, fetchHistory } from '../api';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface HistoryTabProps {
   /** Pool names available from the current alias list (used to seed the selector). */
@@ -35,6 +36,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingClear, setPendingClear] = useState(false);
+  const [pendingTrace, setPendingTrace] = useState<HistoryGroup | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
 
   const fetchPage = useCallback(() => {
     return fetchHistory(selectedPool || undefined)
@@ -91,15 +95,33 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
 
   const handleClearPool = async () => {
     if (!selectedPool) return;
-    if (!window.confirm(`Clear all history for pool "${selectedPool}"?`)) return;
-    await clearHistory(selectedPool);
-    void fetchPage();
+    setIsClearing(true);
+    try {
+      await clearHistory(selectedPool);
+      setPendingClear(false);
+      void fetchPage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear history');
+    } finally {
+      setIsClearing(false);
+    }
   };
 
-  const handleDeleteTrace = async (group: HistoryGroup) => {
-    const ids = [group.user?.id, group.assistant?.id].filter((id): id is string => Boolean(id));
-    await Promise.all(ids.map((id) => deleteHistoryEntry(id)));
-    void fetchPage();
+  const handleDeleteTrace = async () => {
+    if (!pendingTrace) return;
+    setIsClearing(true);
+    const ids = [pendingTrace.user?.id, pendingTrace.assistant?.id].filter(
+      (id): id is string => Boolean(id)
+    );
+    try {
+      await Promise.all(ids.map((id) => deleteHistoryEntry(id)));
+      setPendingTrace(null);
+      void fetchPage();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete exchange');
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   return (
@@ -147,7 +169,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
           </button>
           {selectedPool && (
             <button
-              onClick={() => void handleClearPool()}
+              onClick={() => setPendingClear(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-semibold rounded-lg border border-rose-500/30 transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -177,7 +199,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
       )}
 
       {error && (
-        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg px-4 py-2.5 text-xs font-mono">
+        <div
+          role="alert"
+          className="bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg px-4 py-2.5 text-xs font-mono"
+        >
           {error}
         </div>
       )}
@@ -210,9 +235,10 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
                   )}
                 </div>
                 <button
-                  onClick={() => void handleDeleteTrace(group)}
-                  className="text-slate-400 hover:text-rose-400 transition-colors"
+                  onClick={() => setPendingTrace(group)}
+                  className="min-h-6 min-w-6 inline-flex items-center justify-center text-slate-400 hover:text-rose-400 transition-colors"
                   title="Delete this exchange"
+                  aria-label={`Delete exchange ${group.trace_id.slice(0, 16)}`}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -259,6 +285,33 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({ poolNames }) => {
           Only message text is retained — headers, raw request bodies and secrets are never stored.
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingClear}
+        title="Clear pool history?"
+        message={
+          <>
+            Every stored prompt and answer for{' '}
+            <span className="font-mono text-white">{selectedPool}</span> will be permanently deleted.
+          </>
+        }
+        confirmLabel="Clear history"
+        destructive
+        busy={isClearing}
+        onConfirm={() => { void handleClearPool(); }}
+        onCancel={() => setPendingClear(false)}
+      />
+
+      <ConfirmDialog
+        open={pendingTrace !== null}
+        title="Delete this exchange?"
+        message="Both the prompt and the answer for this trace will be permanently deleted."
+        confirmLabel="Delete"
+        destructive
+        busy={isClearing}
+        onConfirm={() => { void handleDeleteTrace(); }}
+        onCancel={() => setPendingTrace(null)}
+      />
     </div>
   );
 };

@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "KeyGate",
+        "description": "Connect to your KeyGate AI API gateway.",
+        "data": {
+          "url": "Base URL",
+          "admin_token": "Admin token",
+          "gateway_key": "Gateway key (optional)",
+          "verify_ssl": "Verify SSL certificate",
+          "scan_interval": "Scan interval (seconds)"
+        },
+        "data_description": {
+          "url": "e.g. http://192.168.1.50:3000",
+          "admin_token": "The KEYGATE_ADMIN_TOKEN used for the /api management endpoints.",
+          "gateway_key": "A kg-live-... client token, required for chat_completion and list_models.",
+          "scan_interval": "How often to poll the management API."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure KeyGate",
+        "description": "Update the connection settings for this KeyGate instance.",
+        "data": {
+          "url": "Base URL",
+          "admin_token": "Admin token",
+          "gateway_key": "Gateway key (optional)",
+          "verify_ssl": "Verify SSL certificate",
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid admin token.",
+      "cannot_connect": "Failed to connect to KeyGate.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This KeyGate instance is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "KeyGate options",
+        "data": {
+          "scan_interval": "Scan interval (seconds)",
+          "gateway_key": "Gateway key (optional)"
+        }
+      }
+    }
+  }
+}

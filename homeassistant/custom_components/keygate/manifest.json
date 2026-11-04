@@ -1,0 +1,12 @@
+{
+  "domain": "keygate",
+  "name": "KeyGate",
+  "codeowners": ["@enis1enis2"],
+  "config_flow": true,
+  "documentation": "https://github.com/enis1enis2/KeyGate",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/enis1enis2/KeyGate/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

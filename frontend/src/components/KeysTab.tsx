@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { 
-  Key, 
   Plus, 
   Trash2, 
   RotateCcw, 
@@ -10,6 +9,8 @@ import {
 } from 'lucide-react';
 import type { ApiKeyItem, Provider } from '../types';
 import { addKey, updateKey, deleteKey, errorMessage } from '../api';
+import { Modal } from './Modal';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface KeysTabProps {
   keys: ApiKeyItem[];
@@ -27,6 +28,8 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
   const [budgetCap, setBudgetCap] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ApiKeyItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,10 +73,18 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
     onRefresh();
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this API key?')) return;
-    await deleteKey(id);
-    onRefresh();
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteKey(pendingDelete.id);
+      setPendingDelete(null);
+      onRefresh();
+    } catch (err) {
+      setErrorMsg(errorMessage(err));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -121,23 +132,26 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
                 <button
                   onClick={() => handleReset(k.id)}
                   title="Reset Circuit"
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                  aria-label={`Reset circuit for ${k.key_name}`}
+                  className="min-h-6 min-w-6 inline-flex items-center justify-center p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => handleToggle(k)}
                   title={k.is_active ? 'Disable' : 'Enable'}
-                  className={`p-1.5 rounded-lg transition-colors ${
+                  aria-label={`${k.is_active ? 'Disable' : 'Enable'} ${k.key_name}`}
+                  className={`min-h-6 min-w-6 inline-flex items-center justify-center p-1.5 rounded-lg transition-colors ${
                     k.is_active ? 'bg-slate-800 hover:bg-rose-900/30 text-emerald-400 hover:text-rose-400' : 'bg-slate-800 text-slate-400'
                   }`}
                 >
                   <Power className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  onClick={() => handleDelete(k.id)}
+                  onClick={() => setPendingDelete(k)}
                   title="Delete Key"
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 transition-colors"
+                  aria-label={`Delete ${k.key_name}`}
+                  className="min-h-6 min-w-6 inline-flex items-center justify-center p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -185,123 +199,152 @@ export const KeysTab: React.FC<KeysTabProps> = ({ keys, providers, onRefresh }) 
       </div>
 
       {/* Add Upstream Key Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <Key className="w-5 h-5 text-indigo-400" />
-                <h2 className="text-base font-bold text-white">Add Encrypted Upstream Key</h2>
-              </div>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-white text-lg font-bold"
-              >
-                &times;
-              </button>
-            </div>
-
-            {errorMsg && (
-              <div className="text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 p-2.5 rounded-lg flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                {errorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleAddKey} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Target Provider:</label>
-                <select
-                  value={providerId}
-                  onChange={(e) => setProviderId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                >
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Key Friendly Name:</label>
-                <input
-                  type="text"
-                  value={keyName}
-                  onChange={(e) => setKeyName(e.target.value)}
-                  placeholder="e.g. Production Groq Key #1"
-                  required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Upstream Secret API Key:</label>
-                <input
-                  type="password"
-                  value={rawApiKey}
-                  onChange={(e) => setRawApiKey(e.target.value)}
-                  placeholder="Paste sk-... or api key here"
-                  required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:border-indigo-500 focus:outline-none"
-                />
-                <span className="text-[10px] text-slate-400 block mt-1">
-                  Stored as AES-256-GCM cipher with master key. Never logged or exposed in plain text.
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">RPM Cap:</label>
-                  <input
-                    type="number"
-                    value={rpmCap}
-                    onChange={(e) => setRpmCap(parseInt(e.target.value, 10) || 0)}
-                    placeholder="0 = unlimited"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">TPM Cap:</label>
-                  <input
-                    type="number"
-                    value={tpmCap}
-                    onChange={(e) => setTpmCap(parseInt(e.target.value, 10) || 0)}
-                    placeholder="0 = unlimited"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Daily Cap ($):</label>
-                  <input
-                    type="number"
-                    value={budgetCap}
-                    onChange={(e) => setBudgetCap(parseFloat(e.target.value) || 0)}
-                    placeholder="0 = none"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-md transition-colors"
-                >
-                  {isSubmitting ? 'Encrypting & Storing...' : 'Save Encrypted Key'}
-                </button>
-              </div>
-            </form>
+      <Modal
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Add Encrypted Upstream Key"
+        widthClassName="max-w-lg"
+      >
+        {errorMsg && (
+          <div
+            role="alert"
+            className="text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 p-2.5 rounded-lg flex items-center gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {errorMsg}
           </div>
-        </div>
-      )}
+        )}
+
+        <form onSubmit={handleAddKey} className="space-y-4">
+          <div>
+            <label htmlFor="key-provider" className="block text-xs font-semibold text-slate-300 mb-1">
+              Target Provider:
+            </label>
+            <select
+              id="key-provider"
+              value={providerId}
+              onChange={(e) => setProviderId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+            >
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="key-name" className="block text-xs font-semibold text-slate-300 mb-1">
+              Key Friendly Name:
+            </label>
+            <input
+              id="key-name"
+              type="text"
+              value={keyName}
+              onChange={(e) => setKeyName(e.target.value)}
+              placeholder="e.g. Production Groq Key #1"
+              required
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="key-secret" className="block text-xs font-semibold text-slate-300 mb-1">
+              Upstream Secret API Key:
+            </label>
+            <input
+              id="key-secret"
+              type="password"
+              value={rawApiKey}
+              onChange={(e) => setRawApiKey(e.target.value)}
+              placeholder="Paste sk-... or api key here"
+              required
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-white focus:border-indigo-500 focus:outline-none"
+            />
+            <span className="text-[10px] text-slate-400 block mt-1">
+              Stored as AES-256-GCM cipher with master key. Never logged or exposed in plain text.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label htmlFor="key-rpm" className="block text-xs font-semibold text-slate-300 mb-1">
+                RPM Cap:
+              </label>
+              <input
+                id="key-rpm"
+                type="number"
+                min={0}
+                value={rpmCap}
+                onChange={(e) => setRpmCap(parseInt(e.target.value, 10) || 0)}
+                placeholder="0 = unlimited"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="key-tpm" className="block text-xs font-semibold text-slate-300 mb-1">
+                TPM Cap:
+              </label>
+              <input
+                id="key-tpm"
+                type="number"
+                min={0}
+                value={tpmCap}
+                onChange={(e) => setTpmCap(parseInt(e.target.value, 10) || 0)}
+                placeholder="0 = unlimited"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="key-budget" className="block text-xs font-semibold text-slate-300 mb-1">
+                Daily Cap ($):
+              </label>
+              <input
+                id="key-budget"
+                type="number"
+                min={0}
+                step="0.01"
+                value={budgetCap}
+                onChange={(e) => setBudgetCap(parseFloat(e.target.value) || 0)}
+                placeholder="0 = none"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => setShowAddModal(false)}
+              className="min-h-8 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="min-h-8 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-md transition-colors"
+            >
+              {isSubmitting ? 'Encrypting & Storing...' : 'Save Encrypted Key'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete upstream key?"
+        message={
+          <>
+            KeyGate will stop routing to <span className="font-mono text-white">{pendingDelete?.key_name}</span> and
+            remove the encrypted secret from the database. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={isDeleting}
+        onConfirm={() => { void handleDelete(); }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 };

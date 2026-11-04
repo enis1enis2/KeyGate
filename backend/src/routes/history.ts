@@ -10,9 +10,9 @@ export const historyRoutes: FastifyPluginAsync = async (fastify) => {
     const limit = Math.min(500, Math.max(1, Number(query.limit) || 100));
 
     const entries = ChatHistoryRepo.getByPool(poolName, limit);
-    const pools = poolName
-      ? ChatHistoryRepo.getPools()
-      : ChatHistoryRepo.getPools();
+    // Pool summaries are global on purpose: the selector keeps showing every pool while one is
+    // filtered, so the operator can switch without clearing the filter first.
+    const pools = ChatHistoryRepo.getPools();
 
     return reply.send({ entries, pools });
   });

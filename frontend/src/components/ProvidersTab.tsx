@@ -19,6 +19,7 @@ import {
   scanProvider,
   quickAddProvider
 } from '../api';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface ProvidersTabProps {
   providers: Provider[];
@@ -29,6 +30,8 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(providers[0] || null);
   const [specYaml, setSpecYaml] = useState<string>(providers[0]?.spec_yaml || '');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Provider | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Wizard visibility: primary = Quick-Add, Advanced = cURL/YAML generator.
@@ -113,13 +116,21 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this provider spec?')) return;
-    await deleteProvider(id);
-    onRefresh();
-    if (selectedProvider?.id === id) {
-      setSelectedProvider(null);
-      setSpecYaml('');
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteProvider(pendingDelete.id);
+      if (selectedProvider?.id === pendingDelete.id) {
+        setSelectedProvider(null);
+        setSpecYaml('');
+      }
+      setPendingDelete(null);
+      onRefresh();
+    } catch (err) {
+      setSaveStatus(`Error: ${errorMessage(err)}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -200,13 +211,13 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
           : 'Drafted spec from cURL! You can test or save it below.'
       );
     } catch (err) {
-      alert(`Wizard error: ${errorMessage(err)}`);
+      setSaveStatus(`Wizard error: ${errorMessage(err)}`);
     }
   };
 
   const handleRunTest = async () => {
     if (!testKey.trim()) {
-      alert('Please enter a test API key to send the request.');
+      setTestResult({ success: false, error: 'Please enter a test API key to send the request.' });
       return;
     }
     setIsRunningTest(true);
@@ -515,9 +526,9 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(p.id);
+                        setPendingDelete(p);
                       }}
-                      className="text-slate-400 hover:text-rose-400 p-1.5 rounded transition-colors"
+                      className="text-slate-400 hover:text-rose-400 min-h-6 min-w-6 inline-flex items-center justify-center p-1.5 rounded transition-colors"
                       title="Delete provider"
                       aria-label={`Delete provider ${p.name}`}
                     >
@@ -545,7 +556,10 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
               </div>
               <div className="flex items-center gap-2">
                 {saveStatus && (
-                  <span className={`text-xs ${saveStatus.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'} font-medium`}>
+                  <span
+                    role="status"
+                    className={`text-xs ${saveStatus.startsWith('Error') || saveStatus.startsWith('Wizard error') ? 'text-rose-400' : 'text-emerald-400'} font-medium`}
+                  >
                     {saveStatus}
                   </span>
                 )}
@@ -688,6 +702,23 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ providers, onRefresh
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete provider spec?"
+        message={
+          <>
+            Provider <span className="font-mono text-white">{pendingDelete?.name}</span> and its YAML spec
+            will be removed. Pools and upstream keys that reference{' '}
+            <span className="font-mono text-white">{pendingDelete?.id}</span> will stop working.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={isDeleting}
+        onConfirm={() => { void handleDelete(); }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 };

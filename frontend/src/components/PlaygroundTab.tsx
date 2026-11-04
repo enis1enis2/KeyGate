@@ -40,7 +40,7 @@ interface PlaygroundTabProps {
 type StreamOutcome = 'completed' | 'aborted';
 
 export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
-  const [gatewayKey, setGatewayKey] = useState(() => localStorage.getItem(PLAYGROUND_KEY_STORAGE) ?? '');
+  const [gatewayKey, setGatewayKey] = useState(() => sessionStorage.getItem(PLAYGROUND_KEY_STORAGE) ?? '');
   const [showKey, setShowKey] = useState(false);
 
   const chatPools = aliases.filter((alias) => alias.endpoint_kind === 'chat' && alias.is_active);
@@ -288,7 +288,7 @@ export const PlaygroundTab: React.FC<PlaygroundTabProps> = ({ aliases }) => {
                 value={gatewayKey}
                 onChange={(e) => {
                   setGatewayKey(e.target.value);
-                  localStorage.setItem(PLAYGROUND_KEY_STORAGE, e.target.value);
+                  sessionStorage.setItem(PLAYGROUND_KEY_STORAGE, e.target.value);
                 }}
                 placeholder="kg-…  (gateway token, not admin token)"
                 autoComplete="off"

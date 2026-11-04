@@ -45,16 +45,19 @@ export function subscribeToUnauthorized(handler: (message: string) => void): () 
   return () => window.removeEventListener(UNAUTHORIZED_EVENT, listener);
 }
 
+// DECISION: The admin token is a bearer credential. `sessionStorage` keeps it out of the
+// persistent on-disk store, scopes it to one tab and drops it when the tab closes, which limits
+// the blast radius of an XSS or of a shared/kiosk browser.
 export function getAdminToken(): string {
-  return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? '';
+  return sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? '';
 }
 
 export function setAdminToken(token: string): void {
-  localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
+  sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
 }
 
 export function clearAdminToken(): void {
-  localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+  sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
 }
 
 async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -82,14 +85,14 @@ function jsonBody(data: unknown): RequestInit {
   };
 }
 
-export async function fetchStats(): Promise<DashboardStats> {
-  const res = await apiFetch('/api/dashboard/stats');
+export async function fetchStats(options?: { signal?: AbortSignal }): Promise<DashboardStats> {
+  const res = await apiFetch('/api/dashboard/stats', { signal: options?.signal });
   if (!res.ok) throw new Error('Failed to fetch stats');
   return res.json();
 }
 
-export async function fetchProviders(): Promise<Provider[]> {
-  const res = await apiFetch('/api/providers');
+export async function fetchProviders(options?: { signal?: AbortSignal }): Promise<Provider[]> {
+  const res = await apiFetch('/api/providers', { signal: options?.signal });
   if (!res.ok) throw new Error('Failed to fetch providers');
   return res.json();
 }
@@ -195,8 +198,8 @@ export async function clearHistory(pool?: string): Promise<number> {
   return data.removed;
 }
 
-export async function fetchKeys(): Promise<ApiKeyItem[]> {
-  const res = await apiFetch('/api/keys');
+export async function fetchKeys(options?: { signal?: AbortSignal }): Promise<ApiKeyItem[]> {
+  const res = await apiFetch('/api/keys', { signal: options?.signal });
   if (!res.ok) throw new Error('Failed to fetch keys');
   return res.json();
 }
@@ -227,8 +230,8 @@ export async function deleteKey(id: string): Promise<boolean> {
   return data.success;
 }
 
-export async function fetchAliases(): Promise<ModelAlias[]> {
-  const res = await apiFetch('/api/aliases');
+export async function fetchAliases(options?: { signal?: AbortSignal }): Promise<ModelAlias[]> {
+  const res = await apiFetch('/api/aliases', { signal: options?.signal });
   if (!res.ok) throw new Error('Failed to fetch aliases');
   return res.json();
 }
@@ -251,8 +254,8 @@ export async function deleteAlias(id: string): Promise<boolean> {
   return data.success;
 }
 
-export async function fetchGatewayKeys(): Promise<GatewayKey[]> {
-  const res = await apiFetch('/api/gateway-keys');
+export async function fetchGatewayKeys(options?: { signal?: AbortSignal }): Promise<GatewayKey[]> {
+  const res = await apiFetch('/api/gateway-keys', { signal: options?.signal });
   if (!res.ok) throw new Error('Failed to fetch gateway keys');
   return res.json();
 }

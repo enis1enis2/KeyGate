@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { PricingRepo } from '../db/index.js';
 import type { ModelPricingRecord } from '../types/index.js';
+import { idParams, nonNegativeNumber, trimmedString } from './schemas.js';
 
 // DECISION: Pricing rows are admin-managed data under /api, so they inherit the admin
 // onRequest hook registered in server.ts and are never reachable from gateway keys.
@@ -9,7 +10,21 @@ export const pricingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send(PricingRepo.getAll());
   });
 
-  fastify.post('/api/pricing', async (request, reply) => {
+  fastify.post('/api/pricing', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['provider_id', 'model', 'input_per_mtok', 'output_per_mtok'],
+        properties: {
+          id: trimmedString(200),
+          provider_id: trimmedString(200),
+          model: trimmedString(300),
+          input_per_mtok: nonNegativeNumber,
+          output_per_mtok: nonNegativeNumber,
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as Partial<ModelPricingRecord>;
 
     if (!body || !body.provider_id || !body.model) {
@@ -33,7 +48,7 @@ export const pricingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ success: true, id });
   });
 
-  fastify.delete('/api/pricing/:id', async (request, reply) => {
+  fastify.delete('/api/pricing/:id', { schema: { params: idParams } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     return reply.send({ success: PricingRepo.delete(id) });
   });

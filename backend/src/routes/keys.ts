@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { ApiKeyRepo, ProviderRepo } from '../db/index.js';
 import { encryptSecret, maskKey } from '../crypto.js';
 import { CircuitBreakerManager } from '../engine/circuit-breaker.js';
+import { idParams, keyCapsSchema, trimmedString } from './schemas.js';
 
 export const keysRoutes: FastifyPluginAsync = async (fastify) => {
   // List all keys with masked values and real-time health stats
@@ -31,7 +32,20 @@ export const keysRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create upstream key (encrypted with AES-256-GCM)
-  fastify.post('/api/keys', async (request, reply) => {
+  fastify.post('/api/keys', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['provider_id', 'key_name', 'api_key'],
+        properties: {
+          provider_id: trimmedString(200),
+          key_name: trimmedString(200),
+          api_key: trimmedString(8192),
+          ...keyCapsSchema,
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as {
       provider_id: string;
       key_name: string;
@@ -77,7 +91,19 @@ export const keysRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Update key status or caps
-  fastify.put('/api/keys/:id', async (request, reply) => {
+  fastify.put('/api/keys/:id', {
+    schema: {
+      params: idParams,
+      body: {
+        type: 'object',
+        properties: {
+          is_active: { type: 'boolean' },
+          reset_circuit: { type: 'boolean' },
+          ...keyCapsSchema,
+        },
+      },
+    },
+  }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as {
       is_active?: boolean;
@@ -111,7 +137,7 @@ export const keysRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Delete key
-  fastify.delete('/api/keys/:id', async (request, reply) => {
+  fastify.delete('/api/keys/:id', { schema: { params: idParams } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const deleted = ApiKeyRepo.delete(id);
     return reply.send({ success: deleted });

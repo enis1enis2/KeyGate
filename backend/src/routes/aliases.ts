@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import crypto from 'crypto';
 import { ModelAliasRepo } from '../db/index.js';
 import type { TargetConfig, RoutingStrategy, EndpointKind } from '../types/index.js';
+import { idParams, nonNegativeInteger, nonNegativeNumber, trimmedString } from './schemas.js';
 
 const ENDPOINT_KINDS: readonly EndpointKind[] = [
   'chat',
@@ -45,7 +46,67 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Upsert alias
-  fastify.post('/api/aliases', async (request, reply) => {
+  fastify.post('/api/aliases', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['alias_name', 'targets'],
+        properties: {
+          id: trimmedString(200),
+          alias_name: trimmedString(200),
+          strategy: {
+            type: 'string',
+            enum: ['weighted-by-health', 'round-robin', 'priority', 'by-ai'],
+          },
+          targets: {
+            type: 'array',
+            maxItems: 100,
+            items: {
+              type: 'object',
+              required: ['provider_id', 'model'],
+              properties: {
+                provider_id: trimmedString(200),
+                model: trimmedString(300),
+                weight: nonNegativeNumber,
+                priority: nonNegativeNumber,
+                tier: trimmedString(100),
+              },
+            },
+          },
+          description: { type: ['string', 'null'], maxLength: 500 },
+          endpoint_kind: {
+            type: 'string',
+            enum: ['chat', 'responses', 'completions', 'embeddings', 'images', 'audio', 'moderations', 'batches'],
+          },
+          daily_token_cap: nonNegativeNumber,
+          daily_spend_cap: nonNegativeNumber,
+          hedging_enabled: { type: 'boolean' },
+          hedged_delay_ms: nonNegativeInteger,
+          timeout_ms: { type: 'integer', minimum: 1, maximum: 600000 },
+          is_active: { type: 'boolean' },
+          search_enabled: { type: 'boolean' },
+          search_provider: { type: 'string', enum: ['duckduckgo', 'wikipedia'] },
+          search_max_results: { type: 'integer', minimum: 1, maximum: 10 },
+          search_max_rounds: { type: 'integer', minimum: 0, maximum: 5 },
+          search_off_notice: { type: 'boolean' },
+          classifier_provider_id: { type: ['string', 'null'], maxLength: 200 },
+          classifier_model: { type: ['string', 'null'], maxLength: 300 },
+          tiers: {
+            type: 'array',
+            maxItems: 50,
+            items: {
+              type: 'object',
+              required: ['name'],
+              properties: {
+                name: trimmedString(100),
+                description: { type: 'string', maxLength: 500 },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const body = request.body as {
       id?: string;
       alias_name: string;
@@ -106,7 +167,7 @@ export const aliasesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Delete alias
-  fastify.delete('/api/aliases/:id', async (request, reply) => {
+  fastify.delete('/api/aliases/:id', { schema: { params: idParams } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const deleted = ModelAliasRepo.delete(id);
     return reply.send({ success: deleted });

@@ -196,13 +196,33 @@ If `KEYGATE_MASTER_KEY` or `KEYGATE_ADMIN_TOKEN` is accidentally committed,
 exposed in a log, or otherwise compromised:
 
 1. **Immediately rotate** the compromised credential.
-2. **Re-encrypt** all upstream API keys using a new master key.
-3. **Force a database migration** — delete `data/keygate.sqlite` and re-run the
-   setup script so all keys are re-encrypted fresh.
-4. **Publish a security advisory** (via GitHub) describing what happened, what
+2. **Re-encrypt** stored upstream keys using the two-key rotation procedure below.
+3. **Publish a security advisory** (via GitHub) describing what happened, what
    was rotated, and any mitigations.
-5. **Update this policy** with the lessons learned, so the same class of error
+4. **Update this policy** with the lessons learned, so the same class of error
    cannot recur.
+
+## Rotating the master key
+
+Rotating `KEYGATE_MASTER_KEY` is a two-key operation so the gateway stays online:
+
+1. Generate a replacement with `openssl rand -hex 32`.
+2. Set `KEYGATE_MASTER_KEY` to the new value and `KEYGATE_MASTER_KEY_PREVIOUS` to the old one,
+   then restart KeyGate. Old rows keep decrypting because both keys are tried.
+3. Re-encrypt stored keys with `cd backend && npm run reencrypt` (or
+   `docker compose exec keygate node dist/reencrypt.js`).
+4. Remove `KEYGATE_MASTER_KEY_PREVIOUS` and restart.
+
+The re-encryption script is idempotent, never prints plaintext or ciphertext, verifies each row
+against the current key, and reports any row it cannot decrypt.
+
+## Prompt and completion history
+
+Per-pool prompt/completion history is **on by default** for single-user installs. On a shared
+deployment set `HISTORY_ENABLED=false` to stop writing it; the setting takes effect on restart.
+Request logs (status, latency, token counts, cost) are separate and are still retained for the
+configured `METRICS_RETENTION_DAYS`.
+
 
 ## Verification
 

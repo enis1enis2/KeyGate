@@ -1,8 +1,10 @@
 import Fastify from 'fastify';
+import type { FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
 import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
 import multipart from '@fastify/multipart';
 import path from 'path';
 import fs from 'fs';
@@ -36,9 +38,107 @@ export async function buildServer() {
     logger: {
       level: CONFIG.logLevel,
     },
+    // DECISION: Behind a reverse proxy the socket address is the proxy, so rate limiting and
+    // request logs would all share one bucket. Trust is opt-in via TRUST_PROXY because trusting
+    // every hop on a directly exposed server lets clients spoof X-Forwarded-For.
+    trustProxy: CONFIG.trustProxy,
+  });
+
+  // DECISION: Security headers are set centrally instead of pulling in helmet. The console is a
+  // same-origin SPA with no third-party scripts, so a tight CSP is compatible and removes a whole
+  // class of XSS impact even if a rendering bug slips through.
+  const CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; ');
+
+  fastify.addHook('onSend', async (request, reply, payload) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    reply.header('Cross-Origin-Opener-Policy', 'same-origin');
+    reply.header('Cross-Origin-Resource-Policy', 'same-origin');
+    reply.header('Content-Security-Policy', CSP);
+    // HSTS is only meaningful (and only safe) on a TLS connection.
+    if (CONFIG.enableHsts && request.protocol === 'https') {
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    return payload;
+  });
+
+  // DECISION: Errors raised by Fastify itself (validation, rate limit, not found) bypass the route
+  // handlers, so a dedicated handler keeps the /v1 surface speaking the OpenAI error envelope and
+  // stops internal exception messages from leaking to data-plane callers.
+  fastify.setErrorHandler((error: FastifyError, request, reply) => {
+    const statusCode = typeof error.statusCode === 'number' && error.statusCode >= 400
+      ? error.statusCode
+      : 500;
+
+    if (statusCode >= 500) {
+      request.log.error({ err: error, url: request.url }, 'Unhandled request error');
+    }
+
+    if (request.url.startsWith('/v1')) {
+      const type =
+        statusCode >= 500 ? 'api_error'
+          : statusCode === 429 ? 'rate_limit_error'
+            : 'invalid_request_error';
+      const code =
+        statusCode === 429 ? 'rate_limit_exceeded'
+          : statusCode === 400 ? 'invalid_request_error'
+            : 'internal_error';
+      const message =
+        statusCode >= 500
+          ? 'Internal server error.'
+          : statusCode === 429
+            ? 'Rate limit exceeded. Try again later.'
+            : error.message;
+
+      return reply.status(statusCode).send({
+        error: { message, type, param: null, code },
+      });
+    }
+
+    return reply.status(statusCode).send({ error: error.message });
   });
 
   await fastify.register(sensible);
+
+  // DECISION: The route JSON Schemas are the API contract, so the OpenAPI document is generated
+  // from them instead of a hand-maintained file that drifts. It is served behind the admin auth
+  // hook at /api/openapi.json rather than being world-readable.
+  await fastify.register(swagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'KeyGate API',
+        version: '1.0.0',
+        description:
+          'Self-hosted AI API pool gateway. /v1/* is the OpenAI-compatible data plane and uses ' +
+          'a gateway key (kg-live-...); /api/* is the management plane and uses the admin token.',
+      },
+      servers: [{ url: '/' }],
+      components: {
+        securitySchemes: {
+          adminToken: { type: 'http', scheme: 'bearer' },
+          gatewayToken: { type: 'http', scheme: 'bearer' },
+        },
+      },
+      tags: [
+        { name: 'management', description: 'Admin console API (admin bearer token).' },
+        { name: 'gateway', description: 'OpenAI-compatible data plane (gateway bearer token).' },
+      ],
+    },
+  });
 
   // DECISION: Rate limit every route by client IP, with a tighter budget on the /v1 data plane.
   await fastify.register(rateLimit, {
@@ -127,12 +227,26 @@ export async function buildServer() {
   await fastify.register(logsRoutes);
   await fastify.register(historyRoutes);
 
+  // Generated after every route is registered: fastify.swagger() reads the collected schemas.
+  fastify.get('/api/openapi.json', { schema: { hide: true } }, async (_request, reply) => {
+    return reply.send(fastify.swagger());
+  });
+
   // DECISION: Serve built frontend SPA statically from public/ with SPA HTML fallback for seamless single-binary deployment.
   const publicDir = path.resolve(process.cwd(), 'public');
   if (fs.existsSync(publicDir)) {
     await fastify.register(fastifyStatic, {
       root: publicDir,
       prefix: '/',
+      setHeaders: (reply, filePath) => {
+        // Vite emits content-hashed asset filenames, so they can be cached forever. The HTML
+        // shell must never be cached or clients keep loading stale bundle references.
+        if (filePath.endsWith('index.html')) {
+          reply.header('Cache-Control', 'no-cache');
+        } else if (/\.(?:js|css|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|avif|ico|map)$/i.test(filePath)) {
+          reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
     });
 
     // SPA fallback: any non-API route serves index.html

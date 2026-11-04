@@ -14,6 +14,34 @@ Handlebars.registerHelper('eq', (a, b) => a === b);
 Handlebars.registerHelper('ne', (a, b) => a !== b);
 Handlebars.registerHelper('default', (val, def) => (val !== undefined && val !== null && val !== '') ? val : def);
 
+// DECISION: Provider specs are static config, so their templates only need compiling once. These
+// caches are bounded: a spec edit produces a new key, and clearing the whole map keeps memory flat
+// instead of growing without limit over a long-running process.
+const MAX_TEMPLATE_CACHE = 100;
+
+const handlebarsCache = new Map<string, ReturnType<typeof Handlebars.compile>>();
+const jsonataCache = new Map<string, ReturnType<typeof jsonata>>();
+
+function compileHandlebars(source: string): ReturnType<typeof Handlebars.compile> {
+  const cached = handlebarsCache.get(source);
+  if (cached) return cached;
+
+  const template = Handlebars.compile(source);
+  if (handlebarsCache.size >= MAX_TEMPLATE_CACHE) handlebarsCache.clear();
+  handlebarsCache.set(source, template);
+  return template;
+}
+
+function compileJsonata(source: string): ReturnType<typeof jsonata> {
+  const cached = jsonataCache.get(source);
+  if (cached) return cached;
+
+  const expression = jsonata(source);
+  if (jsonataCache.size >= MAX_TEMPLATE_CACHE) jsonataCache.clear();
+  jsonataCache.set(source, expression);
+  return expression;
+}
+
 export interface PreparedUpstreamRequest {
   url: string;
   method: string;
@@ -160,10 +188,10 @@ export class TemplateMapper {
     let mappedBodyObj: unknown;
 
     if (mapping.engine === 'jsonata' && mapping.template) {
-      const expression = jsonata(mapping.template);
+      const expression = compileJsonata(mapping.template);
       mappedBodyObj = await expression.evaluate(context);
     } else if (mapping.engine === 'handlebars' && mapping.template) {
-      const templateFn = Handlebars.compile(mapping.template);
+      const templateFn = compileHandlebars(mapping.template);
       const renderedStr = templateFn(context);
       try {
         mappedBodyObj = JSON.parse(renderedStr);
@@ -227,7 +255,7 @@ export class TemplateMapper {
     }
 
     if (mapping.engine === 'jsonata') {
-      const expression = jsonata(mapping.template);
+      const expression = compileJsonata(mapping.template);
       const result = await expression.evaluate(rawBody);
 
       // If jsonata directly returns an OpenAI completion object
@@ -257,7 +285,7 @@ export class TemplateMapper {
     }
 
     if (mapping.engine === 'handlebars') {
-      const templateFn = Handlebars.compile(mapping.template);
+      const templateFn = compileHandlebars(mapping.template);
       const renderedStr = templateFn(rawBody);
       try {
         const parsed = JSON.parse(renderedStr);
@@ -337,7 +365,7 @@ export class TemplateMapper {
     }
 
     if (chunkMapping.engine === 'jsonata') {
-      const expression = jsonata(chunkMapping.template);
+      const expression = compileJsonata(chunkMapping.template);
       const res = await expression.evaluate(rawChunkData);
       if (!res) return null;
 
@@ -363,7 +391,7 @@ export class TemplateMapper {
     }
 
     if (chunkMapping.engine === 'handlebars') {
-      const templateFn = Handlebars.compile(chunkMapping.template);
+      const templateFn = compileHandlebars(chunkMapping.template);
       const renderedStr = templateFn(rawChunkData);
       try {
         const parsed = JSON.parse(renderedStr);

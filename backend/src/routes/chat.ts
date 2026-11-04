@@ -197,6 +197,9 @@ function recordChatHistory(args: {
   completionTokens: number;
   isStream: boolean;
 }): void {
+  // DECISION: Where prompts are stored is an operator privacy decision. HISTORY_ENABLED=false keeps
+  // the data plane working while never persisting message content.
+  if (!CONFIG.historyEnabled) return;
   try {
     if (!args.userMessage && !args.assistantMessage) return;
     ChatHistoryRepo.add({

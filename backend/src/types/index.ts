@@ -137,6 +137,8 @@ export interface ApiKeyRecord {
   cooldown_until: number; // timestamp in ms
   disabled_reason: string | null;
   last_error: string | null;
+  /** Which master-key generation encrypted this row (see crypto.CURRENT_KEY_VERSION). */
+  key_version: number;
   created_at: string;
   updated_at: string;
 }

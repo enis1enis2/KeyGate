@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { CONFIG } from '../config.js';
+import { CURRENT_KEY_VERSION } from '../crypto.js';
 import { SCHEMA_SQL } from './schema.js';
 import { runMigrations } from './migrations.js';
 import type { 
@@ -117,8 +118,8 @@ export const ApiKeyRepo = {
     const stmt = db.prepare(`
       INSERT INTO api_keys (
         id, provider_id, key_name, encrypted_key, iv, tag, key_prefix, key_suffix,
-        rpm_cap, tpm_cap, daily_budget_cap, is_active, circuit_state, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'CLOSED', datetime('now'))
+        rpm_cap, tpm_cap, daily_budget_cap, key_version, is_active, circuit_state, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'CLOSED', datetime('now'))
     `);
     stmt.run(
       key.id,
@@ -131,7 +132,8 @@ export const ApiKeyRepo = {
       key.key_suffix,
       key.rpm_cap || 0,
       key.tpm_cap || 0,
-      key.daily_budget_cap || 0
+      key.daily_budget_cap || 0,
+      CURRENT_KEY_VERSION
     );
   },
 

@@ -34,4 +34,17 @@ export function runMigrations(db: Database): void {
   ensureColumn(db, 'request_logs', 'endpoint', "TEXT NOT NULL DEFAULT 'chat'");
   ensureColumn(db, 'request_logs', 'cost', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'request_logs', 'pool_name', 'TEXT');
+
+  // Master-key rotation: records which key generation encrypted the row so operators can find
+  // rows still using a retired key. Old rows default to version 1, the only generation that
+  // existed before this column was introduced.
+  ensureColumn(db, 'api_keys', 'key_version', 'INTEGER NOT NULL DEFAULT 1');
+
+  // Lookup indexes for the queries the console and repos actually run. CREATE INDEX IF NOT
+  // EXISTS is repeated here (as well as in schema.ts) so databases created before the index
+  // existed pick it up on the next start.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_api_keys_provider_id ON api_keys(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_history_trace_id ON chat_history(trace_id);
+  `);
 }

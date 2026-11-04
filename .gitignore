@@ -23,6 +23,10 @@ data/
 coverage/
 .oxlintcache
 .playwright-mcp/
+test-results/
+playwright-report/
+blob-report/
+audit-artifacts/
 
 # Editors / OS
 .vscode/*

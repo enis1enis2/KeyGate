@@ -9,6 +9,7 @@ import {
 import type { RequestLog, Provider, EndpointKind } from '../types';
 import { ENDPOINT_KINDS } from '../types';
 import { fetchLogs } from '../api';
+import { Modal } from './Modal';
 
 interface LogsTabProps {
   providers: Provider[];
@@ -93,8 +94,11 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
       {/* Filter Bar */}
       <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800/80 flex flex-wrap gap-4 text-xs font-mono">
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-[10px] text-slate-400 uppercase mb-1">Status Filter:</label>
+          <label htmlFor="log-status-filter" className="block text-[10px] text-slate-400 uppercase mb-1">
+            Status Filter:
+          </label>
           <select
+            id="log-status-filter"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
@@ -106,8 +110,11 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
         </div>
 
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-[10px] text-slate-400 uppercase mb-1">Provider:</label>
+          <label htmlFor="log-provider-filter" className="block text-[10px] text-slate-400 uppercase mb-1">
+            Provider:
+          </label>
           <select
+            id="log-provider-filter"
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
@@ -120,8 +127,11 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
         </div>
 
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-[10px] text-slate-400 uppercase mb-1">Endpoint:</label>
+          <label htmlFor="log-endpoint-filter" className="block text-[10px] text-slate-400 uppercase mb-1">
+            Endpoint:
+          </label>
           <select
+            id="log-endpoint-filter"
             value={endpointFilter}
             onChange={(e) => setEndpointFilter(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
@@ -134,8 +144,11 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
         </div>
 
         <div className="flex-1 min-w-[160px]">
-          <label className="block text-[10px] text-slate-400 uppercase mb-1">Model Search:</label>
+          <label htmlFor="log-model-search" className="block text-[10px] text-slate-400 uppercase mb-1">
+            Model Search:
+          </label>
           <input
+            id="log-model-search"
             type="text"
             value={modelFilter}
             onChange={(e) => setModelFilter(e.target.value)}
@@ -220,8 +233,9 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
                     <td className="py-3 px-4">
                       <button
                         onClick={() => setSelectedLog(log)}
-                        className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1"
+                        className="min-h-6 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1"
                         title="Inspect trace"
+                        aria-label={`Inspect trace ${log.trace_id}`}
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span className="text-[10px]">Inspect</span>
@@ -236,23 +250,17 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
       </div>
 
       {/* Trace Inspection Modal */}
-      {selectedLog && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full p-6 shadow-2xl space-y-4 font-mono text-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="text-sm font-bold text-white">Trace Inspection</h3>
-                <span className="text-[10px] text-slate-400">{selectedLog.trace_id}</span>
-              </div>
-              <button
-                onClick={() => setSelectedLog(null)}
-                className="text-slate-400 hover:text-white text-lg font-bold"
-              >
-                &times;
-              </button>
-            </div>
+      <Modal
+        open={selectedLog !== null}
+        onClose={() => setSelectedLog(null)}
+        title="Trace Inspection"
+        widthClassName="max-w-2xl"
+      >
+        {selectedLog && (
+          <div className="space-y-4 font-mono text-xs">
+            <span className="text-[10px] text-slate-400 block break-all">{selectedLog.trace_id}</span>
 
-            <div className="grid grid-cols-2 gap-3 text-slate-300">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-300">
               <div>Endpoint: <span className="text-cyan-400">{selectedLog.endpoint || 'chat'}</span></div>
               <div>Provider: <span className="text-white">{selectedLog.provider_id}</span></div>
               <div>Model: <span className="text-white">{selectedLog.model}</span></div>
@@ -285,14 +293,14 @@ export const LogsTab: React.FC<LogsTabProps> = ({ providers }) => {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setSelectedLog(null)}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-xs font-semibold"
+                className="min-h-8 px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-xs font-semibold"
               >
                 Close
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 };

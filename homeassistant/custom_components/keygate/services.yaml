@@ -1,0 +1,660 @@
+# Services exposed by the KeyGate integration.
+# Every service accepts an optional `config_entry_id` to target a specific
+# KeyGate instance when more than one is configured.
+
+chat_completion:
+  name: Chat completion
+  description: Run a chat completion through a KeyGate pool (OpenAI-compatible /v1).
+  fields:
+    model:
+      name: Pool / model
+      description: The AI pool (model alias) to route the request to.
+      required: true
+      example: gpt-4o
+      selector:
+        text:
+    messages:
+      name: Messages
+      description: OpenAI-style messages array.
+      required: false
+      selector:
+        object:
+    message:
+      name: Message
+      description: Convenience single user message (used when `messages` is omitted).
+      required: false
+      selector:
+        text:
+          multiline: true
+    temperature:
+      name: Temperature
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 2
+          step: 0.1
+          mode: box
+    top_p:
+      name: Top P
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+          mode: box
+    max_tokens:
+      name: Max tokens
+      required: false
+      selector:
+        number:
+          min: 1
+          mode: box
+    stream:
+      name: Stream
+      description: Request a streaming SSE response (returned as raw text).
+      required: false
+      default: false
+      selector:
+        boolean:
+    extra:
+      name: Extra body
+      description: Additional JSON merged into the request body.
+      required: false
+      selector:
+        object:
+
+embeddings:
+  name: Embeddings
+  description: Create embeddings through a KeyGate pool.
+  fields:
+    model:
+      name: Pool / model
+      required: true
+      selector:
+        text:
+    input:
+      name: Input
+      description: Text or list of texts to embed.
+      required: true
+      selector:
+        object:
+
+list_models:
+  name: List models
+  description: List the pools visible to the configured gateway key.
+
+create_upstream_key:
+  name: Create upstream key
+  description: Store a new encrypted upstream provider API key.
+  fields:
+    provider_id:
+      name: Provider ID
+      required: true
+      selector:
+        text:
+    key_name:
+      name: Key name
+      required: true
+      selector:
+        text:
+    api_key:
+      name: API key
+      required: true
+      selector:
+        text:
+    rpm_cap:
+      name: RPM cap
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    tpm_cap:
+      name: TPM cap
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    daily_budget_cap:
+      name: Daily budget cap (USD)
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+
+reset_circuit:
+  name: Reset circuit
+  description: Reset the circuit breaker for an upstream key.
+  fields:
+    key_id:
+      name: Upstream key ID
+      required: true
+      selector:
+        text:
+
+set_upstream_key_active:
+  name: Enable/disable upstream key
+  fields:
+    key_id:
+      name: Upstream key ID
+      required: true
+      selector:
+        text:
+    active:
+      name: Active
+      required: true
+      selector:
+        boolean:
+
+set_upstream_key_caps:
+  name: Set upstream key caps
+  fields:
+    key_id:
+      name: Upstream key ID
+      required: true
+      selector:
+        text:
+    rpm_cap:
+      name: RPM cap
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    tpm_cap:
+      name: TPM cap
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    daily_budget_cap:
+      name: Daily budget cap (USD)
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+
+delete_upstream_key:
+  name: Delete upstream key
+  fields:
+    key_id:
+      name: Upstream key ID
+      required: true
+      selector:
+        text:
+
+upsert_pool:
+  name: Create/update pool
+  description: Create or update an AI pool (model alias) with its target chain.
+  fields:
+    alias_name:
+      name: Pool name
+      required: true
+      selector:
+        text:
+    targets:
+      name: Targets
+      description: List of {provider_id, model, weight, priority, tier}.
+      required: true
+      selector:
+        object:
+    id:
+      name: Pool ID
+      description: Existing pool ID to update (omit to create).
+      required: false
+      selector:
+        text:
+    strategy:
+      name: Strategy
+      required: false
+      selector:
+        select:
+          options: [weighted-by-health, round-robin, priority, by-ai]
+    description:
+      name: Description
+      required: false
+      selector:
+        text:
+    endpoint_kind:
+      name: Endpoint kind
+      required: false
+      selector:
+        select:
+          options: [chat, responses, completions, embeddings, images, audio, moderations, batches, files]
+    daily_token_cap:
+      name: Daily token cap
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    daily_spend_cap:
+      name: Daily spend cap (USD)
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    hedging_enabled:
+      name: Hedging enabled
+      required: false
+      selector:
+        boolean:
+    hedged_delay_ms:
+      name: Hedged delay (ms)
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    timeout_ms:
+      name: Timeout (ms)
+      required: false
+      selector:
+        number:
+          min: 1000
+          mode: box
+    is_active:
+      name: Active
+      required: false
+      selector:
+        boolean:
+    search_enabled:
+      name: Web search enabled
+      required: false
+      selector:
+        boolean:
+    search_provider:
+      name: Search provider
+      required: false
+      selector:
+        select:
+          options: [duckduckgo, wikipedia]
+    search_max_results:
+      name: Search max results
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    search_max_rounds:
+      name: Search max rounds
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 5
+          mode: box
+    search_off_notice:
+      name: Search off notice
+      required: false
+      selector:
+        boolean:
+    classifier_provider_id:
+      name: Classifier provider ID
+      required: false
+      selector:
+        text:
+    classifier_model:
+      name: Classifier model
+      required: false
+      selector:
+        text:
+    tiers:
+      name: Tiers
+      description: List of {name, description} complexity tiers for by-ai routing.
+      required: false
+      selector:
+        object:
+
+delete_pool:
+  name: Delete pool
+  fields:
+    pool_id:
+      name: Pool ID
+      required: true
+      selector:
+        text:
+
+upsert_provider:
+  name: Create/update provider
+  description: Save a declarative YAML provider spec.
+  fields:
+    spec_yaml:
+      name: Provider spec (YAML)
+      required: true
+      selector:
+        text:
+          multiline: true
+    name:
+      name: Name
+      required: false
+      selector:
+        text:
+    description:
+      name: Description
+      required: false
+      selector:
+        text:
+    preset:
+      name: Preset
+      required: false
+      selector:
+        text:
+    provider_id:
+      name: Provider ID
+      required: false
+      selector:
+        text:
+
+delete_provider:
+  name: Delete provider
+  fields:
+    provider_id:
+      name: Provider ID
+      required: true
+      selector:
+        text:
+
+draft_provider_from_curl:
+  name: Draft provider from cURL
+  description: Auto-draft a provider spec from a cURL command via the wizard.
+  fields:
+    curl_command:
+      name: cURL command
+      required: true
+      selector:
+        text:
+          multiline: true
+    sample_response:
+      name: Sample response
+      required: false
+      selector:
+        text:
+          multiline: true
+
+scan_provider:
+  name: Scan provider base URL
+  description: Probe a base URL to discover models and chat path.
+  fields:
+    base_url:
+      name: Base URL
+      required: true
+      selector:
+        text:
+    preset:
+      name: Preset
+      required: false
+      selector:
+        text:
+    api_key:
+      name: API key
+      required: false
+      selector:
+        text:
+
+test_provider:
+  name: Test provider
+  description: Live-test a provider spec, returning the mapped request and response.
+  fields:
+    spec_yaml:
+      name: Provider spec (YAML)
+      required: true
+      selector:
+        text:
+          multiline: true
+    test_key:
+      name: Test key
+      required: true
+      selector:
+        text:
+    prompt:
+      name: Prompt
+      required: false
+      selector:
+        text:
+    model:
+      name: Model
+      required: false
+      selector:
+        text:
+
+quick_add_provider:
+  name: Quick-add provider
+  description: Create provider + upstream key + pool in one call.
+  fields:
+    name:
+      name: Name
+      required: true
+      selector:
+        text:
+    preset:
+      name: Preset
+      required: true
+      selector:
+        text:
+    base_url:
+      name: Base URL
+      required: true
+      selector:
+        text:
+    model:
+      name: Model
+      required: true
+      selector:
+        text:
+    api_key:
+      name: API key
+      required: false
+      selector:
+        text:
+    description:
+      name: Description
+      required: false
+      selector:
+        text:
+    pool_name:
+      name: Pool name
+      required: false
+      selector:
+        text:
+    chat_path:
+      name: Chat path
+      required: false
+      selector:
+        text:
+    preserveRoot:
+      name: Preserve root
+      required: false
+      selector:
+        boolean:
+    timeout_ms:
+      name: Timeout (ms)
+      required: false
+      selector:
+        number:
+          min: 1000
+          mode: box
+
+upsert_pricing:
+  name: Create/update pricing
+  fields:
+    provider_id:
+      name: Provider ID
+      required: true
+      selector:
+        text:
+    model:
+      name: Model
+      required: true
+      selector:
+        text:
+    input_per_mtok:
+      name: Input USD / Mtok
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    output_per_mtok:
+      name: Output USD / Mtok
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    id:
+      name: Pricing ID
+      required: false
+      selector:
+        text:
+
+delete_pricing:
+  name: Delete pricing
+  fields:
+    pricing_id:
+      name: Pricing ID
+      required: true
+      selector:
+        text:
+
+create_gateway_key:
+  name: Create gateway key
+  description: Issue a new client bearer token (kg-live-...).
+  fields:
+    name:
+      name: Name
+      required: true
+      selector:
+        text:
+    rpm_limit:
+      name: RPM limit
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    tpm_limit:
+      name: TPM limit
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box
+    allowed_aliases:
+      name: Allowed pools
+      description: List of pool names, or ["*"] for all.
+      required: false
+      selector:
+        object:
+    expires_in_days:
+      name: Expires in days
+      required: false
+      selector:
+        number:
+          min: 1
+          mode: box
+
+revoke_gateway_key:
+  name: Revoke gateway key
+  fields:
+    key_id:
+      name: Gateway key ID
+      required: true
+      selector:
+        text:
+
+delete_gateway_key:
+  name: Delete gateway key
+  fields:
+    key_id:
+      name: Gateway key ID
+      required: true
+      selector:
+        text:
+
+get_logs:
+  name: Get request logs
+  description: Fetch filterable request traces.
+  fields:
+    limit:
+      name: Limit
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    status:
+      name: Status
+      required: false
+      selector:
+        select:
+          options: [success, error]
+    provider_id:
+      name: Provider ID
+      required: false
+      selector:
+        text:
+    model:
+      name: Model
+      required: false
+      selector:
+        text:
+    endpoint:
+      name: Endpoint
+      required: false
+      selector:
+        text:
+
+get_history:
+  name: Get chat history
+  fields:
+    pool:
+      name: Pool
+      required: false
+      selector:
+        text:
+    limit:
+      name: Limit
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box
+
+get_history_pools:
+  name: Get chat history pools
+
+clear_history:
+  name: Clear chat history
+  fields:
+    pool:
+      name: Pool
+      description: Clear only this pool (omit to clear everything).
+      required: false
+      selector:
+        text:
+
+delete_history_entry:
+  name: Delete chat history entry
+  fields:
+    entry_id:
+      name: Entry ID
+      required: true
+      selector:
+        text:
+
+get_dashboard_stats:
+  name: Get dashboard stats
+
+get_health:
+  name: Get health

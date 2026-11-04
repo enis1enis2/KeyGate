@@ -13,6 +13,7 @@ import {
 import type { ModelAlias, Provider, TargetConfig, EndpointKind, DashboardStats, TierConfig, SearchProviderId } from '../types';
 import { ENDPOINT_KINDS, SEARCH_PROVIDERS } from '../types';
 import { saveAlias, deleteAlias, errorMessage } from '../api';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface RoutingTabProps {
   aliases: ModelAlias[];
@@ -50,6 +51,8 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
 
   const [isSaving, setIsSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ModelAlias | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const poolUsage = stats?.poolUsageToday ?? [];
 
@@ -167,11 +170,19 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this AI pool? Gateway keys scoped to it will stop working.')) return;
-    await deleteAlias(id);
-    onRefresh();
-    if (selectedAlias?.id === id) applyPool(null);
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteAlias(pendingDelete.id);
+      if (selectedAlias?.id === pendingDelete.id) applyPool(null);
+      setPendingDelete(null);
+      onRefresh();
+    } catch (err) {
+      setStatusMsg(`Error: ${errorMessage(err)}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -241,9 +252,11 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(a.id);
+                        setPendingDelete(a);
                       }}
-                      className="text-slate-400 hover:text-rose-400 p-1.5 rounded transition-colors"
+                      className="text-slate-400 hover:text-rose-400 min-h-6 min-w-6 inline-flex items-center justify-center p-1.5 rounded transition-colors"
+                      title="Delete pool"
+                      aria-label={`Delete pool ${a.alias_name}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -295,7 +308,10 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
               </div>
               <div className="flex items-center gap-3">
                 {statusMsg && (
-                  <span className={`text-xs ${statusMsg.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'} font-medium`}>
+                  <span
+                    role="status"
+                    className={`text-xs ${statusMsg.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'} font-medium`}
+                  >
                     {statusMsg}
                   </span>
                 )}
@@ -705,6 +721,23 @@ export const RoutingTab: React.FC<RoutingTabProps> = ({ aliases, providers, stat
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete AI pool?"
+        message={
+          <>
+            Pool <span className="font-mono text-white">{pendingDelete?.alias_name}</span> will be removed.
+            Gateway keys scoped to it will start returning{' '}
+            <span className="font-mono text-rose-400">403 model_not_allowed</span>.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={isDeleting}
+        onConfirm={() => { void handleDelete(); }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 };

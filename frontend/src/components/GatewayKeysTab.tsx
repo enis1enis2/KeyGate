@@ -6,10 +6,13 @@ import {
   Copy, 
   Check, 
   ShieldCheck, 
-  BookOpen
+  BookOpen,
+  AlertTriangle
 } from 'lucide-react';
 import type { GatewayKey, ModelAlias } from '../types';
 import { createGatewayKey, revokeGatewayKey, deleteGatewayKey, errorMessage } from '../api';
+import { Modal } from './Modal';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface GatewayKeysTabProps {
   gatewayKeys: GatewayKey[];
@@ -29,6 +32,9 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ kind: 'revoke' | 'delete'; id: string } | null>(null);
+  const [isActing, setIsActing] = useState(false);
 
   const togglePool = (pool: string) => {
     setAllowedPools((prev) =>
@@ -41,6 +47,7 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
     if (!name.trim()) return;
 
     setIsSubmitting(true);
+    setErrorMsg(null);
     try {
       const res = await createGatewayKey({
         name: name.trim(),
@@ -58,22 +65,25 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
       setAllowedPools([]);
       onRefresh();
     } catch (err) {
-      alert(`Error creating token: ${errorMessage(err)}`);
+      setErrorMsg(`Error creating token: ${errorMessage(err)}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleRevoke = async (id: string) => {
-    if (!confirm('Are you sure you want to revoke this Gateway key?')) return;
-    await revokeGatewayKey(id);
-    onRefresh();
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this Gateway key?')) return;
-    await deleteGatewayKey(id);
-    onRefresh();
+  const handleConfirmedAction = async () => {
+    if (!pendingAction) return;
+    setIsActing(true);
+    try {
+      if (pendingAction.kind === 'revoke') await revokeGatewayKey(pendingAction.id);
+      else await deleteGatewayKey(pendingAction.id);
+      setPendingAction(null);
+      onRefresh();
+    } catch (err) {
+      setErrorMsg(errorMessage(err));
+    } finally {
+      setIsActing(false);
+    }
   };
 
   const handleCopy = (text: string) => {
@@ -187,16 +197,17 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                     <div className="flex items-center justify-end gap-2">
                       {k.is_active && (
                         <button
-                          onClick={() => handleRevoke(k.id)}
-                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-400 text-xs transition-colors"
+                          onClick={() => setPendingAction({ kind: 'revoke', id: k.id })}
+                          className="min-h-6 px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-400 text-xs transition-colors"
                         >
                           Revoke
                         </button>
                       )}
                       <button
-                        onClick={() => handleDelete(k.id)}
-                        className="p-1.5 rounded text-slate-400 hover:text-rose-400 transition-colors"
+                        onClick={() => setPendingAction({ kind: 'delete', id: k.id })}
+                        className="min-h-6 min-w-6 p-1.5 rounded text-slate-400 hover:text-rose-400 transition-colors inline-flex items-center justify-center"
                         title="Delete"
+                        aria-label={`Delete gateway key ${k.name}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -210,55 +221,61 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
       </div>
 
       {/* Token Reveal Modal */}
-      {newlyCreatedToken && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-emerald-500/40 rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-2 text-emerald-400">
-              <ShieldCheck className="w-6 h-6" />
-              <h2 className="text-base font-bold text-white">Save Your Gateway Token Now</h2>
-            </div>
-            <p className="text-xs text-slate-300">
-              This is the only time this token will ever be displayed in plain text. Please copy it and save it in your OpenAI credential or password vault.
-            </p>
-
-            <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex items-center justify-between font-mono text-xs text-emerald-400 break-all">
-              <span>{newlyCreatedToken}</span>
-              <button
-                onClick={() => handleCopy(newlyCreatedToken)}
-                className="ml-3 p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-white flex-shrink-0"
-              >
-                {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setNewlyCreatedToken(null)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-colors"
-              >
-                I Have Safely Saved It
-              </button>
-            </div>
-          </div>
+      <Modal
+        open={newlyCreatedToken !== null}
+        onClose={() => setNewlyCreatedToken(null)}
+        title="Save Your Gateway Token Now"
+        widthClassName="max-w-lg"
+      >
+        <div className="flex items-center gap-2 text-emerald-400">
+          <ShieldCheck className="w-6 h-6" />
+          <span className="text-xs font-semibold">One-time secret</span>
         </div>
-      )}
+        <p className="text-xs text-slate-300">
+          This is the only time this token will ever be displayed in plain text. Please copy it and save it in your OpenAI credential or password vault.
+        </p>
+
+        <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex items-center justify-between gap-3 font-mono text-xs text-emerald-400 break-all">
+          <span>{newlyCreatedToken}</span>
+          <button
+            onClick={() => newlyCreatedToken && handleCopy(newlyCreatedToken)}
+            aria-label="Copy gateway token"
+            className="min-h-8 min-w-8 p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-white flex-shrink-0 inline-flex items-center justify-center"
+          >
+            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+          </button>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button
+            onClick={() => setNewlyCreatedToken(null)}
+            className="min-h-8 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-colors"
+          >
+            I Have Safely Saved It
+          </button>
+        </div>
+      </Modal>
 
       {/* Generate Token Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <Lock className="w-5 h-5 text-indigo-400" />
-                <h2 className="text-base font-bold text-white">Generate Gateway Bearer Token</h2>
-              </div>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white">&times;</button>
-            </div>
+      <Modal
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="Generate Gateway Bearer Token"
+        widthClassName="max-w-md"
+      >
+        {errorMsg && (
+          <div role="alert" className="text-xs text-rose-400 bg-rose-950/20 border border-rose-900/40 p-2.5 rounded-lg flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {errorMsg}
+          </div>
+        )}
 
-            <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Key Name / Client ID:</label>
+                <label htmlFor="gateway-key-name" className="block text-xs font-semibold text-slate-300 mb-1">Key Name / Client ID:</label>
                 <input
+                  id="gateway-key-name"
+                  name="gateway-key-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -270,8 +287,10 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">RPM Limit:</label>
+                  <label htmlFor="gateway-key-rpm" className="block text-xs font-semibold text-slate-300 mb-1">RPM Limit:</label>
                   <input
+                    id="gateway-key-rpm"
+                    name="gateway-key-rpm"
                     type="number"
                     value={rpmLimit}
                     onChange={(e) => setRpmLimit(parseInt(e.target.value, 10) || 0)}
@@ -280,8 +299,10 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Expires In (Days):</label>
+                  <label htmlFor="gateway-key-expires" className="block text-xs font-semibold text-slate-300 mb-1">Expires In (Days):</label>
                   <input
+                    id="gateway-key-expires"
+                    name="gateway-key-expires"
                     type="number"
                     value={expiresInDays}
                     onChange={(e) => setExpiresInDays(parseInt(e.target.value, 10) || 0)}
@@ -292,8 +313,10 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">TPM Limit:</label>
+                <label htmlFor="gateway-key-tpm" className="block text-xs font-semibold text-slate-300 mb-1">TPM Limit:</label>
                 <input
+                  id="gateway-key-tpm"
+                  name="gateway-key-tpm"
                   type="number"
                   value={tpmLimit}
                   onChange={(e) => setTpmLimit(parseInt(e.target.value, 10) || 0)}
@@ -341,22 +364,35 @@ export const GatewayKeysTab: React.FC<GatewayKeysTabProps> = ({ gatewayKeys, ali
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-semibold rounded-lg"
+                  className="min-h-8 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md"
+                  className="min-h-8 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-md"
                 >
                   {isSubmitting ? 'Generating...' : 'Generate Token'}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={pendingAction !== null}
+        title={pendingAction?.kind === 'revoke' ? 'Revoke gateway key?' : 'Delete gateway key?'}
+        message={
+          pendingAction?.kind === 'revoke'
+            ? 'Clients using this token will be rejected immediately. The key stays in the list as revoked.'
+            : 'This permanently deletes the key record. Clients using its token will be rejected immediately.'
+        }
+        confirmLabel={pendingAction?.kind === 'revoke' ? 'Revoke' : 'Delete'}
+        destructive
+        busy={isActing}
+        onConfirm={() => { void handleConfirmedAction(); }}
+        onCancel={() => setPendingAction(null)}
+      />
     </div>
   );
 };

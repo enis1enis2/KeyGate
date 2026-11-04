@@ -4,5 +4,46 @@
   body {
     @apply bg-slate-950 text-slate-100 font-sans antialiased min-h-screen selection:bg-indigo-500/30 selection:text-indigo-200;
   }
+
+  /* DECISION: Tailwind's focus:outline-none utilities remove the only affordance keyboard users
+     have. A global :focus-visible ring restores it without showing a ring on mouse clicks. */
+  :focus-visible {
+    outline: 2px solid #818cf8;
+    outline-offset: 2px;
+  }
+
+  /* Windows High Contrast / forced-colors mode overrides our colours with system ones, which can
+     make borders and focus rings vanish. CanvasText is guaranteed to contrast with the system
+     background, so key controls keep a visible boundary. */
+  @media (forced-colors: active) {
+    button,
+    input,
+    select,
+    textarea,
+    [role="dialog"] {
+      border: 1px solid CanvasText;
+    }
+
+    :focus-visible {
+      outline: 3px solid Highlight;
+      outline-offset: 2px;
+    }
+
+    [role="dialog"] {
+      background: Canvas;
+      color: CanvasText;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
