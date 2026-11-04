@@ -7,7 +7,7 @@
 #   runner           -> minimal runtime, non-root, no build toolchain
 
 # Stage 1: Build Frontend
-FROM node:22-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci --no-audit --no-fund
@@ -15,7 +15,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Backend
-FROM node:22-alpine AS backend-builder
+FROM node:26-alpine AS backend-builder
 WORKDIR /app/backend
 # `better-sqlite3` ships no musl/arm64 prebuild, so the build stage needs a toolchain too.
 RUN apk add --no-cache python3 make g++
@@ -26,14 +26,14 @@ RUN npm run build
 
 # Stage 3: Production dependencies only. `better-sqlite3` compiles/downloads its native addon
 # here, so the runner image never needs python/make/g++.
-FROM node:22-alpine AS backend-deps
+FROM node:26-alpine AS backend-deps
 WORKDIR /app/backend
 RUN apk add --no-cache python3 make g++
 COPY backend/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # Stage 4: Lean production image
-FROM node:22-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app/backend
 
 ENV NODE_ENV=production
