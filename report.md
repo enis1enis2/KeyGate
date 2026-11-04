@@ -878,15 +878,16 @@ of the remediation is still open. No finding remains Partial.
 | **L-10** | Footer links lack `rel` | **Fixed** | `frontend/src/App.tsx` uses `rel="noopener noreferrer"`. |
 | **L-11** | Blocking `alert()` / `confirm()` | **Fixed** | Replaced by `Modal`/`ConfirmDialog` across all tabs; no `alert`/`confirm` remains in `frontend/src`. |
 | **L-12** | Immutable assets revalidated | **Fixed** | `server.ts` serves `/assets/*` with `public, max-age=31536000, immutable` and keeps `index.html` at `no-cache`. |
+| **PA-1** | Rate-limit rejections returned `500 {}` instead of `429` (found during post-audit verification) | **Fixed** | `@fastify/rate-limit` throws whatever `errorResponseBuilder` returns, and the global handler only reads `statusCode`; the builder returned a plain object, so every rejection became a 500 with an empty body and no `Retry-After`. `server.ts:153-157` now returns an `Error` carrying `context.statusCode`; `backend/tests/rate-limit.test.ts` asserts the global `429` envelope, `Retry-After`, and the `/v1` `rate_limit_error` envelope. Proven live: 320-request burst → 300 × `200` + 20 × `429`. |
 
 ### Verification run (this working tree)
 
 ```
 backend  npm run typecheck      -> clean (tsc --noEmit && tsc -p tsconfig.test.json)
 backend  npm run lint           -> clean (oxlint src tests, no output)
-backend  npm test               -> 13 files passed, 96 tests passed
-backend  npm run test:coverage  -> statements 61.67% / branches 53.25% /
-                                   functions 67.39% / lines 63.10% (all above the gate)
+backend  npm test               -> 16 files passed, 138 tests passed
+backend  npm run test:coverage  -> statements 65.07% / branches 55.63% /
+                                   functions 70.50% / lines 66.52% (all above the gate)
 backend  npm audit --omit=dev --audit-level=high  -> 0 vulnerabilities
 frontend npm run lint           -> clean
 frontend npm run build          -> tsc -b && vite build; JS 369.97 kB (gzip 100.45 kB),
@@ -913,7 +914,7 @@ and was never the user's production data.
 | k6 smoke | k6 v2.3.0 arm64, 1 VU / 15 s | **180/180 checks (100%)**, 0 failed requests, p95 **10.06 ms** |
 | k6 load | 10 VUs / 2 m 50 s, instance limits raised for throughput | **8,532 requests, 0 failed (0%)**; p95 **4.65 ms**, p99 6.01 ms, max 15.76 ms; **0** 5xx, **0** auth failures |
 | k6 soak | 5 VUs / 10 min, instance limits raised for throughput | **17,715 requests, 0 failed**; 35,430/35,430 checks passed; p95 **4.18 ms**, max 22.48 ms; 32.9 MiB RSS after the run |
-| Rate limiter | default `RATE_LIMIT_MAX=300`/min, 100 req/s burst | <!-- RATELIMIT_RESULT --> |
+| Rate limiter | default `RATE_LIMIT_MAX=300`/min, 100 req/s burst | **300 × `200` then 20 × `429`** in a 320-request burst; body `{"error":"Rate limit exceeded: retry in 39 seconds"}`, `Retry-After: 39`, `X-RateLimit-Remaining: 0`. k6 `ratelimit` scenario (100 req/s, 20 s): **6,003 requests**, **5,583 rate-limited (93.00%)**, **0** 5xx / server errors, **0** auth failures, all thresholds passed |
 | HA component runtime | HA 2026.10.4 container, live gateway API | Module imports; health/stats/providers/pools/keys/gateway-keys/pricing work; `/metrics` denied without an admin token |
 | HA config flow | Disposable HA container + live gateway, real flow submission | Entry reaches `loaded`: **28 entities**, **28 services**, no component errors; only the standard "custom integration not tested" warning |
 
@@ -948,6 +949,12 @@ form labels were not associated with their inputs, so `getByLabel` could not fin
 `frontend/src/components/GatewayKeysTab.tsx` with `htmlFor`/`id` pairs. The E2E suite is destructive
 by design (it creates and deletes a key) and is documented as disposable-instance-only.
 
+The k6 run caught a second defect that neither the unit suite nor the audit had exercised: rate-limit
+rejections came back as **`500 {}`** rather than `429`, because `@fastify/rate-limit` throws the
+builder's return value and the returned plain object had no `statusCode`. The fix is in
+`backend/src/server.ts:153-157`, with regression coverage in `backend/tests/rate-limit.test.ts`; the
+burst and k6 results above are from the rebuilt image.
+
 **Still not performed:** the Strix API pentest (needs an LLM provider key, see
 [`docs/security-testing.md`](docs/security-testing.md)) and end-to-end provider streaming under load
 (needs a real upstream or a mock provider; the k6 profile covers the gateway's own endpoints).
@@ -957,7 +964,7 @@ by design (it creates and deletes a key) and is documented as disposable-instanc
 ## 6. Verified baseline at audit time (before fixes)
 
 These are the audit's original measurements, kept for traceability. The post-fix run is in
-[§5A](#5a-remediation-status-post-audit); current results were materially better (96 backend +
+[§5A](#5a-remediation-status-post-audit); current results were materially better (138 backend +
 17 frontend tests, 0 advisories, security headers and validation enforced).
 
 All commands were run in this audit; outputs are the real ones.
