@@ -9,10 +9,17 @@ on:
 permissions:
   contents: read
 
+# Superseded runs on the same branch are cancelled, except on main where every
+# commit should get a result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -20,6 +27,8 @@ jobs:
       # Actions are pinned to full commit SHAs (mutable tags can be moved); the
       # trailing comment records the release the SHA corresponds to.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -36,11 +45,14 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -52,3 +64,43 @@ jobs:
       - run: npm run test:coverage
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+
+  # Builds the shipped container image (Node 26 + native better-sqlite3) and
+  # starts it, so a broken Dockerfile or runtime version cannot reach main.
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build image
+        run: docker build -t keygate:ci .
+      - name: Start and probe the image
+        run: |
+          docker run -d --name keygate-ci -p 3000:3000 \
+            -e NODE_ENV=production \
+            -e KEYGATE_MASTER_KEY="$(openssl rand -hex 32)" \
+            -e KEYGATE_ADMIN_TOKEN="$(openssl rand -hex 24)" \
+            keygate:ci
+
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' keygate-ci 2>/dev/null || echo missing)
+            echo "attempt ${attempt}: ${status}"
+            if [ "$status" = "healthy" ]; then
+              curl -fsS http://127.0.0.1:3000/healthz
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo 'container did not become healthy'
+          docker logs keygate-ci
+          exit 1
+      - name: Show container logs
+        if: failure()
+        run: docker logs keygate-ci || true
+      - name: Remove container
+        if: always()
+        run: docker rm -f keygate-ci || true

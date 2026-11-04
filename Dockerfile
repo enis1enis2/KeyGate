@@ -57,7 +57,7 @@ USER node
 VOLUME ["/app/data"]
 EXPOSE 3000
 
-# Node 22 has fetch built in, so the health probe needs no extra package (curl/wget).
+# Node 20+ has fetch built in, so the health probe needs no extra package (curl/wget).
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 

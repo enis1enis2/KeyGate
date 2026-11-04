@@ -1,296 +1,332 @@
-# KeyGate 🗝️🛡️
+<div align="center">
 
-![KeyGate — self-hosted AI API pool gateway](.github/social-preview.jpg)
+<img src=".github/social-preview.jpg" alt="KeyGate — self-hosted AI API gateway" width="100%">
 
-> **Self-hosted, general-purpose AI API gateway: group upstream provider keys into load-balanced AI pools, route around failing ones, meter and cap spend, and expose ONE OpenAI-compatible API (`/v1`) for any client — plus a modern management UI.**
+<h1>KeyGate</h1>
 
-[![Release](https://img.shields.io/github/v/release/enis1enis2/KeyGate?logo=github)](https://github.com/enis1enis2/KeyGate/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/enis1enis2/KeyGate/ci.yml?branch=main&logo=github)](.github/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)]()
-[![License](https://img.shields.io/github/license/enis1enis2/KeyGate)](LICENSE)
-[![Fastify](https://img.shields.io/badge/Fastify-v5-black.svg)]()
-[![React](https://img.shields.io/badge/React-19-cyan.svg)]()
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)]()
+<p><strong>One OpenAI-compatible API in front of every provider key you own.</strong></p>
 
----
+<p>Pool provider keys, route around failures, meter usage and enforce budgets — self-hosted as a single Node.js service with SQLite.</p>
 
-## 🌟 Core Concepts
+<p>
+  <a href="https://github.com/enis1enis2/KeyGate/actions/workflows/ci.yml"><img src="https://github.com/enis1enis2/KeyGate/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/enis1enis2/KeyGate/releases/latest"><img src="https://img.shields.io/github/v/release/enis1enis2/KeyGate" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/enis1enis2/KeyGate" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white" alt="Node.js 20 or newer">
+  <a href="Dockerfile"><img src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker ready"></a>
+</p>
 
-- **Providers are DATA, not code**: Each upstream provider is defined as a declarative YAML/JSON spec containing endpoints, auth templates, request/response JSONata or Handlebars mappings, streaming chunk translation, and error classification rules.
-- **The Whole OpenAI Surface**: One pipeline serves `/v1/chat/completions`, `/v1/responses`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations`, `/v1/images/*`, `/v1/audio/*` (multipart uploads included), `/v1/files`, `/v1/batches` (including `.../:id/cancel` and `.../:id/content`), `/v1/models` and `/v1/passthrough/{provider}/*` — with the same routing, failover, metering and error shaping everywhere.
-- **AI Pools**: A pool is the model name your clients send. It defines a target chain (`weighted-by-health`, `round-robin`, `priority`), a primary endpoint hint, a description, and **daily token / spend caps**. Gateway keys can be scoped to specific pools.
-- **Metering & Budgets**: `model_pricing` rows (USD per million tokens, `*` wildcards allowed) turn usage into `request_logs.cost`. Daily budgets read `SUM(cost)` for the current UTC day — no reset job. Over-budget API keys are dropped from routing (normal failover continues), exhausted pool caps answer `429 quota_exhausted`.
-- **Circuit Breaker & Key Health**: Tracks a rolling 100-call window per key with p50/p95 latencies and rolling success rates. Automatically opens the circuit upon `N` consecutive failures or low success rates, applies exponential backoff, honors upstream `Retry-After`, applies long cooldowns on quota exhaustion, and disables keys on auth failures.
-- **Smart Failover & Hedging**: Automatically fails over across healthy keys and upstream providers, including multipart uploads and job-based resources (a created batch/file is pinned to the upstream account that created it). Optional speculative hedged requests race backup keys to eliminate latency tail spikes.
-- **Encrypted at Rest**: Upstream API keys are encrypted using **AES-256-GCM** with a master key from the environment. Raw keys are never logged and never exposed in the UI.
-- **Zero-Friction Onboarding**: Paste a cURL command into the **Add Provider Wizard** to auto-draft the YAML spec, then test mappings live before saving.
-- **Any OpenAI-Compatible Client**: Point the official OpenAI SDK, LangChain, Open WebUI, LlamaIndex, n8n, or any custom agent at KeyGate's Base URL — or use the generic passthrough endpoint for anything else.
+<p>
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#api-reference">API</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#development">Development</a> ·
+  <a href="README.tr.md">Türkçe</a>
+</p>
 
----
+</div>
 
-## 🚀 Quick Start with Docker Compose
+## Overview
 
-1. Clone or download the repository:
-   ```bash
-   git clone https://github.com/enis1enis2/KeyGate.git keygate
-   cd keygate
-   ```
+Every AI provider gives you another key, another quota, and another way to fail. KeyGate puts a
+single OpenAI-compatible endpoint in front of all of them. Provider keys become **pools**, pools
+become **model names your clients already send**, and unhealthy keys are routed around
+automatically.
 
-2. Create your environment file and generate two real secrets:
-   ```bash
-   cp .env.example .env
-   KEYGATE_MASTER_KEY=$(openssl rand -hex 32)
-   KEYGATE_ADMIN_TOKEN=$(openssl rand -hex 32)
-   # Append them to .env (they are deliberately empty in .env.example):
-   printf 'KEYGATE_MASTER_KEY=%s\nKEYGATE_ADMIN_TOKEN=%s\n' \
-     "$KEYGATE_MASTER_KEY" "$KEYGATE_ADMIN_TOKEN" >> .env
-   ```
-   `KEYGATE_MASTER_KEY` (at least 16 chars) encrypts upstream keys at rest;
-   `KEYGATE_ADMIN_TOKEN` protects the management API (`/api/*`) and `/metrics`.
-   Both are **required** when `NODE_ENV=production`, and KeyGate refuses to boot
-   with a missing, too-short, or placeholder-looking secret. Keep them in a
-   password manager — losing the master key makes stored upstream keys unreadable.
+It is one Fastify service with an embedded SQLite database — no Redis, no Postgres, no sidecar,
+no external queue. Point the official OpenAI SDK, LangChain, Open WebUI, LlamaIndex, n8n or any
+custom agent at the gateway's base URL and it works unchanged.
 
-3. Start KeyGate with Docker Compose:
-   ```bash
-   docker-compose up -d --build
-   ```
-   The image runs as the unprivileged `node` user (uid 1000). On Linux, create the bind-mounted
-   data directory with matching ownership before the first start:
-   ```bash
-   mkdir -p data && sudo chown -R 1000:1000 data
-   ```
+## Features
 
-4. Open your browser:
-   - **Management UI**: [http://localhost:3000](http://localhost:3000)
-   - **OpenAI Compatible Endpoint**: `http://localhost:3000/v1`
-   - **Health Probe**: [http://localhost:3000/healthz](http://localhost:3000/healthz)
-   - **Prometheus Metrics**: [http://localhost:3000/metrics](http://localhost:3000/metrics)
+| Capability | What it does |
+| :--- | :--- |
+| **One API, every surface** | `/v1/chat/completions`, `/v1/responses`, `/v1/completions`, `/v1/embeddings`, `/v1/moderations`, `/v1/images/*`, `/v1/audio/*`, `/v1/files`, `/v1/batches`, `/v1/models` and a generic `/v1/passthrough/{provider}/*` route share one pipeline. |
+| **Pools and routing** | A pool is the model name clients send. Give it a target chain and a strategy: `weighted-by-health`, `round-robin` or `priority`. |
+| **Health-aware failover** | A rolling window per upstream key tracks p50/p95 latency and success rate. Failing keys get exponential backoff, upstream `Retry-After` is honoured, and auth/quota failures trigger long cooldowns. |
+| **Metering and budgets** | Per-million-token pricing turns usage into cost. Daily caps apply per pool and per gateway key, and over-budget keys are dropped from routing before an upstream call is made. |
+| **Declarative providers** | Providers are YAML/JSON data — endpoints, auth headers, JSONata/Handlebars mappings, streaming chunk translation and error classification — not bespoke code. |
+| **Secrets at rest** | Upstream keys are encrypted with AES-256-GCM under a master key from the environment. Raw keys are never logged or returned in full. |
+| **Management console** | A React UI for providers, pools, keys, pricing, request traces and live health. Includes a cURL-to-spec wizard and a test runner that shows the mapped request and response. |
+| **Observability** | Prometheus metrics at `/metrics`, filterable request traces with cost, trace IDs propagated through the pipeline, and a redacted `/healthz` probe. |
+| **Hardened by default** | Admin/data-plane authentication, strict CSP and security headers, rate limiting, upload limits, traversal-safe passthrough and scoped model routing. |
 
----
+## How it works
 
-## 🛠️ Local Development
-
-### Prerequisites
-- Node.js >= 20
-- npm >= 10
-
-### 1. Install & Build Frontend
-```bash
-cd frontend
-npm install
-npm run build     # Outputs directly to ../backend/public
+```text
+OpenAI SDK · LangChain · Open WebUI · n8n · curl
+                       │
+                       │  POST /v1/chat/completions
+                       │  Authorization: Bearer kg-live-…
+                       ▼
+┌────────────────────────────── KeyGate ─────────────────────────────┐
+│  1. Authenticate the gateway key — pool scope, rpm/tpm, budget     │
+│  2. Resolve the model name → pool → target chain                   │
+│  3. Pick a healthy upstream key (weighted / round-robin / priority)│
+│  4. Map the request with JSONata or Handlebars                     │
+│  5. Call the upstream, stream the response back, meter usage       │
+│  6. On 429/5xx: retry the next key, back off, open the circuit     │
+└────────────────────────────────────────────────────────────────────┘
+                       │
+                       ▼
+        OpenAI · Groq · Mistral · Together · DeepSeek · Anthropic · …
 ```
 
-### 2. Install & Start Backend
+## Quick start
+
+### Docker Compose (recommended)
+
 ```bash
+git clone https://github.com/enis1enis2/KeyGate.git
+cd KeyGate
+
+cp .env.example .env
+# Generate the two required secrets and put them in .env:
+#   KEYGATE_MASTER_KEY=$(openssl rand -hex 32)
+#   KEYGATE_ADMIN_TOKEN=$(openssl rand -hex 32)
+
+docker compose up -d --build
+```
+
+Open [http://localhost:3000](http://localhost:3000), paste the admin token, then add a provider,
+create a pool and issue a gateway key. The first boot prints a starter gateway token to the
+container log.
+
+| Service | URL |
+| :--- | :--- |
+| Management UI | `http://localhost:3000` |
+| OpenAI-compatible API | `http://localhost:3000/v1` |
+| Health probe | `http://localhost:3000/healthz` |
+| Prometheus metrics | `http://localhost:3000/metrics` |
+
+> [!IMPORTANT]
+> The image runs as the unprivileged `node` user (uid 1000). On Linux, create the bind-mounted
+> data directory with matching ownership before the first start:
+> `mkdir -p data && sudo chown -R 1000:1000 data`.
+>
+> `KEYGATE_MASTER_KEY` and `KEYGATE_ADMIN_TOKEN` are mandatory when `NODE_ENV=production`.
+> KeyGate refuses to boot with a missing, too-short or placeholder-looking secret.
+
+Then call it like any OpenAI endpoint:
+
+```bash
+curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer kg-live-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "default",
+    "messages": [{ "role": "user", "content": "Hello from KeyGate" }]
+  }'
+```
+
+## Configuration
+
+The full list, with comments, is in [`.env.example`](.env.example). The settings that matter most:
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `KEYGATE_MASTER_KEY` | *required in production* | AES-256-GCM key for upstream keys at rest (min 16 chars) |
+| `KEYGATE_MASTER_KEY_PREVIOUS` | — | Comma-separated retired keys, accepted for decryption only during rotation |
+| `KEYGATE_ADMIN_TOKEN` | *required in production* | Bearer token for `/api/*` and `/metrics` |
+| `KEYGATE_REQUIRE_AUTH` | `true` | Gateway bearer checks on `/v1/*` (cannot be disabled in production) |
+| `KEYGATE_DB_PATH` | `./data/keygate.sqlite` | SQLite database location |
+| `TRUST_PROXY` | `false` | `true` or comma-separated proxy addresses/CIDRs, for correct client IPs behind a proxy |
+| `CORS_ORIGINS` | *(empty)* | Comma-separated allowed origins; empty means same-origin only |
+| `RATE_LIMIT_MAX` | `300` | Global requests per window |
+| `RATE_LIMIT_V1_MAX` | `120` | Tighter per-window cap for `/v1/*` |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window length |
+| `HISTORY_ENABLED` | `true` | Store per-pool prompt/completion history; set `false` on shared deployments |
+| `METRICS_RETENTION_DAYS` | `30` | Request-log and metric retention |
+| `MAX_UPLOAD_BYTES` | `67108864` | Maximum multipart upload size (64 MiB) |
+| `DEFAULT_TIMEOUT_MS` | `30000` | Default per-request upstream timeout (pools may override) |
+
+### Rotating the master key
+
+Rotation is a two-key operation, so the gateway stays online:
+
+1. Generate a replacement with `openssl rand -hex 32`.
+2. Set `KEYGATE_MASTER_KEY` to the new value and `KEYGATE_MASTER_KEY_PREVIOUS` to the old one,
+   then restart. Both keys are tried for decryption.
+3. Re-encrypt every row: `cd backend && npm run reencrypt`, or
+   `docker compose exec keygate node dist/reencrypt.js`.
+4. Remove `KEYGATE_MASTER_KEY_PREVIOUS` and restart.
+
+The script is idempotent, skips rows already on the current key, and reports any row it cannot
+decrypt without printing secrets.
+
+## API reference
+
+### OpenAI-compatible API (`/v1`)
+
+Every route requires `Authorization: Bearer kg-live-...` (unless `KEYGATE_REQUIRE_AUTH=false`)
+and is routed through an AI pool.
+
+| Endpoint | Methods | Description |
+| :--- | :--- | :--- |
+| `/v1/chat/completions` | `POST` | Chat completions — streaming and non-streaming, failover, hedging |
+| `/v1/responses` | `POST` | OpenAI Responses API |
+| `/v1/completions` | `POST` | Legacy text completions, usage backfilled from SSE |
+| `/v1/embeddings` | `POST` | Embeddings with cost metering |
+| `/v1/moderations` | `POST` | Content moderation |
+| `/v1/images/generations` | `POST` | Image generation (JSON) |
+| `/v1/images/edits`, `/v1/images/variations` | `POST` | Multipart image operations, re-serialized per attempt |
+| `/v1/audio/transcriptions`, `/v1/audio/translations` | `POST` | Multipart audio to JSON |
+| `/v1/audio/speech` | `POST` | Audio synthesis (binary pass-through) |
+| `/v1/files`, `/v1/files/{id}`, `/v1/files/{id}/content` | `GET`, `POST` | Upload, list and retrieve files, pinned to the creating upstream account |
+| `/v1/batches`, `/v1/batches/{id}`, `/v1/batches/{id}/cancel` | `GET`, `POST` | Batch jobs, pinned to the creating upstream account |
+| `/v1/models` | `GET` | Lists the pools this gateway key may use |
+| `/v1/passthrough/{provider}/*` | any | Injects the healthiest key into raw requests, confined to the provider base URL and the key's pool scope |
+
+### Management API (`/api`)
+
+All `/api/*` routes and `/metrics` require `Authorization: Bearer <KEYGATE_ADMIN_TOKEN>`. The UI
+keeps the token in `sessionStorage` and discards it when the tab closes. The contract is generated
+from the route schemas and served as OpenAPI 3.1 at `GET /api/openapi.json`.
+
+| Endpoint | Methods | Description |
+| :--- | :--- | :--- |
+| `/api/providers` | `GET`, `POST` | List and save declarative provider specs |
+| `/api/providers/wizard/draft` | `POST` | Draft a provider spec from a cURL command |
+| `/api/providers/test` | `POST` | Live test runner showing the mapped request and response |
+| `/api/keys` | `GET`, `POST`, `PUT`, `DELETE` | Encrypted upstream keys, health metrics, daily budgets |
+| `/api/aliases` | `GET`, `POST`, `DELETE` | Pools: target chain, strategy, endpoint hint, daily caps |
+| `/api/pricing` | `GET`, `POST`, `DELETE` | `model_pricing` rows (USD per million tokens) |
+| `/api/gateway-keys` | `GET`, `POST`, `DELETE` | Issue and revoke client bearer tokens with rpm/tpm limits and pool scope |
+| `/api/logs` | `GET` | Filterable request traces with status, provider, model, endpoint and cost |
+| `/api/dashboard/stats` | `GET` | KPIs, spend today, per-pool usage and over-budget keys |
+
+## Provider specs
+
+Providers are configuration, not code. Two working examples ship in [`providers/`](providers):
+
+- [`openai-compatible.yaml`](providers/openai-compatible.yaml) — the fast path for Groq, Together,
+  DeepSeek, Mistral and any other OpenAI-compatible API.
+- [`anthropic-messages.yaml`](providers/anthropic-messages.yaml) — a deliberately non-standard API,
+  showing bidirectional JSONata mapping, streaming chunk remapping and custom error types.
+
+Add your own by writing a YAML spec, or paste a cURL command into the **Add Provider** wizard and
+let it draft the spec for you.
+
+## Integrations
+
+KeyGate speaks the OpenAI protocol, so any client that accepts a custom base URL works unchanged.
+
+| Client | Guide |
+| :--- | :--- |
+| OpenAI SDK (Python / Node) | [docs/integrations.md](docs/integrations.md) |
+| LangChain | [docs/integrations.md](docs/integrations.md) |
+| Open WebUI | [docs/integrations.md](docs/integrations.md) |
+| n8n | [docs/n8n.md](docs/n8n.md) and [`n8n-example.json`](n8n-example.json) |
+| Home Assistant | [homeassistant/custom_components/keygate](homeassistant/custom_components/keygate/README.md) |
+| cURL / any HTTP client | [docs/integrations.md](docs/integrations.md) |
+
+## Development
+
+### Requirements
+
+- Node.js 20 or newer (CI runs 22; the container image ships 26)
+- npm 10 or newer
+
+```bash
+# Frontend — builds into backend/public
+cd frontend
+npm install
+npm run build
+
+# Backend — serves the built UI on :3000
 cd ../backend
 npm install
 npm run build
-npm start         # Runs Fastify on http://localhost:3000
+npm start
 ```
 
-### 3. Run Checks
+### Checks
+
 ```bash
+# Backend
 cd backend
 npm run typecheck   # tsc for src/ and tests/
 npm run lint        # oxlint
-npm test            # vitest (isolated temp DB, never touches data/)
-```
+npm test            # vitest, isolated temp database
+npm run test:coverage
 
-Frontend checks:
-
-```bash
+# Frontend
 cd frontend
 npm run lint
 npm test            # vitest + Testing Library (jsdom)
 npm run build
 ```
 
-End-to-end and load testing need a **disposable running instance**:
+Tests run against a throwaway SQLite database in the OS temp directory, so your local `data/` is
+never touched. Both packages gate coverage in `vitest.config.ts`, and CI runs the same checks on
+every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+### End-to-end and load testing
+
+Both suites need a **disposable running instance** — they create data and generate real traffic.
 
 ```bash
-# Playwright smoke: login, tab navigation, gateway-key create/revoke/delete
+# Playwright: login, tab navigation, gateway-key create/revoke/delete
 cd frontend
 npm run test:e2e:install
-KEYGATE_E2E_URL=http://127.0.0.1:3000 KEYGATE_E2E_ADMIN_TOKEN=... npm run test:e2e
+KEYGATE_E2E_URL=http://127.0.0.1:3000 \
+KEYGATE_E2E_ADMIN_TOKEN=... \
+npm run test:e2e
 
-# k6 load/soak (SCENARIO=smoke|load|ratelimit|soak)
+# k6: SCENARIO=smoke|load|ratelimit|soak
 docker run --rm --network host \
   -e BASE_URL=http://127.0.0.1:3000 \
   -e ADMIN_TOKEN=... -e GATEWAY_KEY=kg-live-... -e SCENARIO=soak \
   -v "$PWD/load-tests:/scripts" grafana/k6 run /scripts/keygate.js
 ```
 
-The Playwright suite mutates the target (creates and deletes a gateway key), so never point
-it at production.
+`429` is a correct response under load because the gateway rate-limits by design. The k6 script
+accepts it; run the `ratelimit` scenario to prove the limiter engages, and raise the limits on a
+disposable instance when you want raw throughput numbers. Never point either suite at production.
 
-`429` is an expected answer under load because the gateway rate-limits by design (see
-`RATE_LIMIT_MAX` / `RATE_LIMIT_V1_MAX`). The k6 script accepts it; run the `ratelimit`
-scenario to prove the limiter engages, and raise the limits on a disposable instance when
-you want raw throughput numbers.
+## Security
 
-The test suite includes:
-- Unit tests for template mapping, JSONata expressions, and streaming chunk translation
-- Unit tests for the sliding window circuit breaker, backoff, and Retry-After
-- Unit tests for router strategies (`weighted-by-health`, `round-robin`, `priority`)
-- Unit tests for quota slots, pool caps, daily budgets, pricing and cost metering
-- Integration test running an in-process mock non-standard upstream HTTP server with streaming and failover
-- Integration test for the shared proxy pipeline: every `/v1` surface (responses, completions, images, audio, files, batches), multipart re-serialization, sticky routes, pool scoping, budget blocks and error envelopes
-- Boundary tests for request validation (non-numeric/negative caps → `400`), unauthenticated admin writes (`401`), security headers, passthrough path traversal and gateway-key pool scope (`403`), plus the generated OpenAPI document
-- Frontend component tests for modal focus management, Escape/backdrop close, confirmation states, `sessionStorage` token handling and the 401 broadcast
+- **Encrypted at rest** — AES-256-GCM with unique IVs and authenticated tags; keys are masked as
+  `prefix...suffix` and never logged.
+- **Admin authentication** — `/api/*` and `/metrics` compare the bearer token with
+  `crypto.timingSafeEqual`, on the normalized pathname.
+- **Pre-auth data plane** — `/v1/*` bearer tokens are checked in an `onRequest` hook before any
+  request body is parsed or buffered.
+- **Fail-fast secrets** — production refuses to boot with missing, weak or placeholder secrets.
+- **Quotas before dispatch** — rpm/tpm slots, pool caps and key budgets are checked before an
+  upstream call; violations answer `429 quota_exhausted` with `Retry-After`.
+- **Security headers** — strict CSP, `nosniff`, `DENY`, `no-referrer`, COOP/CORP, permissions
+  policy and HSTS in production.
+- **Passthrough hardening** — allowlisted headers only, traversal rejection (including encoded
+  dots), origin pinning and pool-scope enforcement.
+- **Scoped routing** — unknown models answer `404 model_not_found` instead of silently falling
+  back to the first provider.
+- **Retention** — request traces and metrics are pruned after `METRICS_RETENTION_DAYS`; prompt and
+  completion history can be disabled with `HISTORY_ENABLED=false`.
 
-Tests run against a throwaway SQLite database in the OS temp directory (`tests/setup.ts`), so local data is never modified. Backend and frontend coverage are both gated in their `vitest.config.ts`, so a regression below the baseline fails CI.
+For the full threat model and reporting process, see [`SECURITY.md`](SECURITY.md).
 
-Frontend:
-```bash
-cd frontend
-npm run lint        # oxlint (zero warnings, no-explicit-any enforced)
-npm run build       # tsc -b + vite build -> ../backend/public
-```
+## Documentation
 
-CI runs both job sets on every push and PR (`.github/workflows/ci.yml`).
-
----
-
-## 📡 API Reference
-
-### OpenAI-Compatible API (`/v1`)
-All routes require `Authorization: Bearer kg-live-...` (unless `KEYGATE_REQUIRE_AUTH=false`) and are routed through AI pools.
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/v1/chat/completions` | `POST` | Chat completions (streaming SSE & non-streaming, failover, hedging) |
-| `/v1/responses` | `POST` | OpenAI Responses API |
-| `/v1/completions` | `POST` | Legacy text completions (usage backfilled from SSE) |
-| `/v1/embeddings` | `POST` | Embeddings with cost metering |
-| `/v1/moderations` | `POST` | Content moderation |
-| `/v1/images/generations` | `POST` | Image generation (JSON responses) |
-| `/v1/images/edits`, `/v1/images/variations` | `POST` | Multipart image edits/variations (file re-serialized per attempt) |
-| `/v1/audio/transcriptions`, `/v1/audio/translations` | `POST` | Multipart audio → JSON |
-| `/v1/audio/speech` | `POST` | Audio synthesis (binary pass-through) |
-| `/v1/files` (+ `/:id`, `/:id/content`) | `GET`, `POST` | File upload/list/retrieve, pinned to the creating upstream account |
-| `/v1/batches` (+ `/:id`, `/:id/cancel`) | `GET`, `POST` | Batch jobs, pinned to the creating upstream account |
-| `/v1/models` | `GET` | Lists the pools this gateway key may use |
-| `/v1/passthrough/{provider}/*` | `ANY` | Injects the healthiest key into raw requests for anything else (confined to the provider base URL; pool-scoped keys only reach providers their pools target) |
-
-### Management API (`/api`)
-All `/api/*` routes and `/metrics` require `Authorization: Bearer <KEYGATE_ADMIN_TOKEN>`. The Management UI prompts for this token and keeps it in `sessionStorage`, so it is discarded when the tab closes. The API contract is generated from the route JSON Schemas and served as OpenAPI 3.1 at `GET /api/openapi.json` (admin token required).
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/api/providers` | `GET`, `POST` | List and save declarative YAML provider specs |
-| `/api/providers/wizard/draft` | `POST` | Auto-drafts provider YAML spec from cURL command |
-| `/api/providers/test` | `POST` | Live test runner showing mapped request and response |
-| `/api/keys` | `GET`, `POST`, `PUT`, `DELETE` | Encrypted upstream key manager, health metrics, daily budgets |
-| `/api/aliases` | `GET`, `POST`, `DELETE` | AI pools: target chain, strategy, endpoint hint, daily caps |
-| `/api/pricing` | `GET`, `POST`, `DELETE` | `model_pricing` rows (USD per Mtok) that meter every request |
-| `/api/gateway-keys` | `GET`, `POST`, `DELETE` | Issue/revoke client Bearer tokens with rpm/tpm limits and pool scope |
-| `/api/logs` | `GET` | Filterable request traces (`status`, `provider_id`, `model`, `endpoint`) with cost |
-| `/api/dashboard/stats` | `GET` | Aggregate KPIs, spend today, per-pool usage, over-budget keys |
-
----
-
-## 🧩 Shipped Provider Specs
-
-KeyGate ships with two example provider specs in the `providers/` directory:
-1. [`providers/openai-compatible.yaml`](providers/openai-compatible.yaml): Fast-path configuration for OpenAI-compatible providers (Groq, Together, DeepSeek, Mistral).
-2. [`providers/anthropic-messages.yaml`](providers/anthropic-messages.yaml): Deliberately non-standard API demonstrating bidirectional JSONata transformation of Anthropic's Messages format, streaming chunk remapping, and custom error types.
-
----
-
-## 🔌 Integrations
-
-KeyGate speaks the OpenAI protocol, so anything that accepts a custom OpenAI base URL works unchanged.
-
-| Client | Setup guide |
+| Document | Contents |
 | :--- | :--- |
-| OpenAI SDK (Python / Node) | [docs/integrations.md](docs/integrations.md) |
-| LangChain | [docs/integrations.md](docs/integrations.md) |
-| Open WebUI | [docs/integrations.md](docs/integrations.md) |
-| n8n | [docs/n8n.md](docs/n8n.md) + [`n8n-example.json`](n8n-example.json) |
-| cURL / any HTTP client | [docs/integrations.md](docs/integrations.md) |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Development setup, code conventions, pull-request process |
+| [`SECURITY.md`](SECURITY.md) | Security architecture, disclosure policy, key rotation |
+| [`DECISIONS.md`](DECISIONS.md) | Architecture and engineering decisions |
+| [`docs/integrations.md`](docs/integrations.md) | OpenAI SDK, LangChain, Open WebUI and generic clients |
+| [`docs/n8n.md`](docs/n8n.md) | n8n workflow setup |
+| [`report.md`](report.md) | Security and quality audit, with remediation status |
+| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | Community expectations |
 
-```
-Any OpenAI-compatible client
-           │
-           ▼
-KeyGate (/v1/chat/completions)
-  ├── 1. Authenticate Gateway Key (kg-live-...)
-  ├── 2. Resolve Model Alias -> Target Chain
-  ├── 3. Health-Weighted Key Selection
-  ├── 4. Transform Payload (JSONata / Handlebars)
-  ├── 5. Forward to Upstream
-  └── 6. Automatic Failover if Rate-Limited or 5xx
-```
+## Contributing
 
----
+Contributions are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first, and follow the
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
-## 🔒 Security Architecture
+Found a security issue? **Do not open a public issue** — follow the reporting process in
+[`SECURITY.md`](SECURITY.md).
 
-- **Encrypted at Rest**: Keys are encrypted with **AES-256-GCM** using unique IVs and authenticated tags.
-- **Zero Key Leakage**: Sensitive credentials are never logged and never returned in full (masked as `prefix...suffix`).
-- **Admin Authentication**: `/api/*` and `/metrics` require a bearer token compared with `crypto.timingSafeEqual`.
-- **Fail-Fast Secrets**: `KEYGATE_MASTER_KEY` / `KEYGATE_ADMIN_TOKEN` are mandatory under `NODE_ENV=production`.
-- **Rate Limiting**: Global cap plus a tighter per-route cap on `/v1/*` (`RATE_LIMIT_MAX`, `RATE_LIMIT_V1_MAX`, `RATE_LIMIT_WINDOW_MS`).
-- **Quotas Enforced Before Dispatch**: gateway-key rpm/tpm slots, pool daily token/spend caps and API-key daily budgets are all checked *before* an upstream call; violations answer `429 quota_exhausted` with `Retry-After` instead of burning money.
-- **Same-Origin by Default**: No CORS headers unless `CORS_ORIGINS` explicitly lists allowed origins.
-- **Security Headers**: Every response carries a strict CSP (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, COOP/CORP and a permissions policy. HSTS is emitted on HTTPS responses in production (`ENABLE_HSTS=false` opts out).
-- **Passthrough Hardening**: `/v1/passthrough/*` forwards only allowlisted request/response headers, rejects traversal segments (including percent-encoded and double-encoded dots), keeps the final URL on the provider origin, and enforces gateway-key pool scope before the provider lookup.
-- **Session Expiry**: The UI signs out automatically on a `401` from the management API.
-- **Normalized Admin Guards**: `/api/*` and `/metrics` authorization compares the *normalized* pathname, so percent-encoded (`/%61pi/keys`) and absolute-form request targets cannot slip past the guard while the router still resolves them.
-- **Pre-Auth Data Plane**: the gateway bearer token is verified for `/v1/*` in an `onRequest` hook before Fastify parses or buffers a request body, so unauthenticated callers cannot drive upload buffering.
-- **Scoped Model Routing**: an unknown `model` answers `404 model_not_found` instead of silently falling back to the first provider, so pool caps, strategy and timeout cannot be bypassed.
-- **Metering Isolation**: client `x-trace-id` is format-validated and usage finalization is scoped by `gateway_key_id`, so one key's stream cannot rewrite another key's metering rows.
-- **Health Probe Redaction**: `/healthz` reports coarse status only and logs driver details server-side instead of echoing them to anonymous callers.
-- **History is Opt-Out**: Prompt/completion history is stored per pool by default; set `HISTORY_ENABLED=false` on shared deployments to stop writing it.
-- **Data Retention**: Request trace logs and metrics are retained for 30 days and automatically pruned by a background task.
+## License
 
-### Environment Variables
-
-| Variable | Default | Purpose |
-| :--- | :--- | :--- |
-| `KEYGATE_MASTER_KEY` | *required in prod* | AES-256-GCM key for stored upstream keys |
-| `KEYGATE_MASTER_KEY_PREVIOUS` | *(empty)* | Comma-separated retired master keys accepted for decryption only, for rotation |
-| `KEYGATE_ADMIN_TOKEN` | *required in prod* | Bearer token for `/api/*` and `/metrics` |
-| `KEYGATE_REQUIRE_AUTH` | `true` | Gateway Bearer token checks on `/v1/*` (refused when `NODE_ENV=production` and set to `false`) |
-| `KEYGATE_DB_PATH` | `./data/keygate.sqlite` | SQLite database location |
-| `TRUST_PROXY` | `false` | `true` or comma-separated proxy addresses/CIDRs; required for correct client IPs behind a reverse proxy |
-| `HISTORY_ENABLED` | `true` | Capture per-pool prompt/completion history; set `false` to stop writing it |
-| `ENABLE_HSTS` | `true` in prod | Emit `Strict-Transport-Security` on HTTPS responses |
-| `CORS_ORIGINS` | *(empty)* | Comma-separated allowed origins; empty = same-origin only |
-| `RATE_LIMIT_MAX` | `300` | Global requests per window |
-| `RATE_LIMIT_V1_MAX` | `120` | Per-window cap for `/v1/*` routes |
-| `RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window length |
-| `METRICS_RETENTION_DAYS` | `30` | Log/metric retention |
-| `MAX_UPLOAD_BYTES` | `67108864` | Max multipart upload size (bytes) for audio/image/file routes |
-| `DEFAULT_TIMEOUT_MS` | `30000` | Default per-request upstream timeout (pools may override) |
-
-### Rotating the master key
-
-Upstream keys are encrypted with the current `KEYGATE_MASTER_KEY`. Rotation is a two-key
-operation so the gateway stays online:
-
-1. Generate a replacement: `openssl rand -hex 32`.
-2. Set `KEYGATE_MASTER_KEY` to the new value and `KEYGATE_MASTER_KEY_PREVIOUS` to the old one,
-   then restart KeyGate. Decryption keeps working because both keys are tried.
-3. Re-encrypt every row with the new key:
-   - dev checkout: `cd backend && npm run reencrypt`
-   - Docker: `docker compose exec keygate node dist/reencrypt.js`
-4. Remove `KEYGATE_MASTER_KEY_PREVIOUS` and restart.
-
-The script is idempotent, skips rows already on the current key generation, and reports (without
-printing secrets) any row it cannot decrypt. Each row records its `key_version` so operators can
-verify the migration.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for
-the development setup, code conventions, and the pull-request process. All
-participants are expected to follow the
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
-Found a security issue? **Do not open a public issue** — follow the reporting
-process in [SECURITY.md](SECURITY.md).
+Released under the [MIT License](LICENSE).
