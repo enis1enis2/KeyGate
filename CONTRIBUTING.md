@@ -141,9 +141,8 @@ cd frontend
 npm run test:e2e      # Playwright; needs a disposable instance + admin token
 ```
 
-Load/soak profiles live in `load-tests/keygate.js` (k6), and the autonomous API
-pentest runbook is in `docs/security-testing.md` (Strix, needs an LLM key).
-Both mutate or stress the target, so point them only at a disposable instance.
+Load/soak profiles live in `load-tests/keygate.js` (k6). Both the E2E suite and the
+load profiles mutate or stress the target, so point them only at a disposable instance.
 
 ## The provider-spec model
 

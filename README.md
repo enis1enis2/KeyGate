@@ -130,10 +130,6 @@ it at production.
 scenario to prove the limiter engages, and raise the limits on a disposable instance when
 you want raw throughput numbers.
 
-For the Strix autonomous API pentest (OWASP API Top 10), see
-[`docs/security-testing.md`](docs/security-testing.md). It needs an LLM provider key and
-Docker, and should only target a disposable instance.
-
 The test suite includes:
 - Unit tests for template mapping, JSONata expressions, and streaming chunk translation
 - Unit tests for the sliding window circuit breaker, backoff, and Retry-After

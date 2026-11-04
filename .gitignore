@@ -27,7 +27,6 @@ test-results/
 playwright-report/
 blob-report/
 audit-artifacts/
-strix_runs/
 
 # Editors / OS
 .vscode/*

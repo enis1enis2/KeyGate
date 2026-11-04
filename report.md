@@ -91,14 +91,14 @@ weeks away from being defensible as a shared or internet-facing service.
 ### 3.2 Out of scope / not performed
 
 - Third-party providers themselves (OpenAI, Anthropic, Groq) — only treated as untrusted upstreams.
-- Penetration testing with Strix (`api-security-testing` skill requires the Strix CLI, not installed).
 - Load/soak testing; all performance numbers are single-request lab measurements.
 - Windows-specific path handling beyond what the test suite exercises.
 - Runtime test of the Home Assistant integration inside a real HA instance (static review + API contract only).
 
-> **Post-audit update:** the last three were completed after the audit against real hardware — see
-> the live-verification table in [§5A](#5a-remediation-status-post-audit). Strix remains pending an
-> LLM provider key; the runbook is in [`docs/security-testing.md`](docs/security-testing.md).
+> **Post-audit update:** load/soak testing and a real Home Assistant run were completed after the audit
+> against real hardware — see the live-verification table in [§5A](#5a-remediation-status-post-audit).
+> No autonomous black-box pentest was performed; the fixed authorization, traversal and scope vectors
+> are covered by `backend/tests/validation.test.ts` and `backend/tests/security.test.ts`.
 
 ### 3.3 Skills applied
 
@@ -941,9 +941,6 @@ docker run --rm --network host -e BASE_URL=http://127.0.0.1:3000 \
 # (url, admin token, optional gateway key).
 ```
 
-The Strix API pentest is the one run that needs an external credential: set `STRIX_LLM`
-and `LLM_API_KEY`, then follow [`docs/security-testing.md`](docs/security-testing.md).
-
 The Playwright run also caught a real accessibility defect that unit tests could not: the gateway-key
 form labels were not associated with their inputs, so `getByLabel` could not find them. Fixed in
 `frontend/src/components/GatewayKeysTab.tsx` with `htmlFor`/`id` pairs. The E2E suite is destructive
@@ -955,9 +952,8 @@ builder's return value and the returned plain object had no `statusCode`. The fi
 `backend/src/server.ts:153-157`, with regression coverage in `backend/tests/rate-limit.test.ts`; the
 burst and k6 results above are from the rebuilt image.
 
-**Still not performed:** the Strix API pentest (needs an LLM provider key, see
-[`docs/security-testing.md`](docs/security-testing.md)) and end-to-end provider streaming under load
-(needs a real upstream or a mock provider; the k6 profile covers the gateway's own endpoints).
+**Still not performed:** end-to-end provider streaming under load (needs a real upstream or a mock
+provider; the k6 profile covers the gateway's own endpoints).
 
 ---
 
@@ -1032,8 +1028,7 @@ Audit-time results (the ❌ rows are the findings addressed in §5A):
 
 > **Status:** every item below has been implemented in this working tree; see
 > [§5A](#5a-remediation-status-post-audit) for per-finding evidence, the Docker/HA/Playwright/k6
-> results, and the two remaining environment-limited caveats (Strix needs an LLM key; provider
-> streaming needs a real upstream).
+> results, and the one remaining environment-limited caveat (provider streaming needs a real upstream).
 
 ### Release-blocking (do before any shared / internet-facing deployment) — ~3–4 days
 
@@ -1138,10 +1133,10 @@ document.querySelectorAll('[aria-modal=true]').length // 0
 
 ## 9. Appendix B — Audit limitations
 
-- **No dynamic API fuzzing.** The `api-security-testing` skill requires the Strix CLI, which was not
-  installed during the audit. Findings were derived from code reading plus targeted live
-  reproductions. *(Post-audit: the Strix runbook and a ready-to-run command are in
-  `docs/security-testing.md`; execution still needs an LLM provider key.)*
+- **No dynamic API fuzzing.** No autonomous black-box pentest was run during the audit. Findings were
+  derived from code reading plus targeted live reproductions; the fixed authorization, traversal and
+  scope vectors are now covered by `backend/tests/validation.test.ts` and
+  `backend/tests/security.test.ts`.
 - **No load testing at audit time.** Quota burst-splitting (L-6), polling concurrency (M-7), and
   template-compile cost (L-4) were reasoned from code. *(Post-audit: smoke, load, soak, and a
   rate-limit scenario were run with k6 against the arm64 container — results in §5A.)*
