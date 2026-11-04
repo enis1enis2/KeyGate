@@ -910,8 +910,8 @@ and was never the user's production data.
 |---|---|---|
 | Container build | `docker build -t keygate:audit .` on arm64 HAOS | Success, **322 MB**, four-stage build; `USER node` (uid 1000) at runtime |
 | Container run | `keygate-audit`, `-p 3000:3000`, mounted SQLite volume | Healthy; `/healthz` → `{"status":"healthy","database":"ok"}` |
-| Playwright E2E | `@playwright/test` 1.64.1 / Chromium, `KEYGATE_E2E_URL=http://192.168.1.12:3000` | **3/3 passed**: wrong-token rejection + unlock, every console tab renders, gateway key create → revoke → delete through the UI |
-| k6 smoke | k6 v2.3.0 arm64, 1 VU / 15 s | **180/180 checks (100%)**, 0 failed requests, p95 **10.06 ms** |
+| Playwright E2E | `@playwright/test` 1.64.1 / Chromium, `KEYGATE_E2E_URL=http://192.168.1.12:3000` | **3/3 passed** on the final rebuilt image: wrong-token rejection + unlock, every console tab renders, gateway key create → revoke → delete through the UI |
+| k6 smoke | k6 v2.3.0 arm64, 1 VU / 15 s | **180/180 checks (100%)**, 0 failed requests, p95 **5.80 ms** |
 | k6 load | 10 VUs / 2 m 50 s, instance limits raised for throughput | **8,532 requests, 0 failed (0%)**; p95 **4.65 ms**, p99 6.01 ms, max 15.76 ms; **0** 5xx, **0** auth failures |
 | k6 soak | 5 VUs / 10 min, instance limits raised for throughput | **17,715 requests, 0 failed**; 35,430/35,430 checks passed; p95 **4.18 ms**, max 22.48 ms; 32.9 MiB RSS after the run |
 | Rate limiter | default `RATE_LIMIT_MAX=300`/min, 100 req/s burst | **300 × `200` then 20 × `429`** in a 320-request burst; body `{"error":"Rate limit exceeded: retry in 39 seconds"}`, `Retry-After: 39`, `X-RateLimit-Remaining: 0`. k6 `ratelimit` scenario (100 req/s, 20 s): **6,003 requests**, **5,583 rate-limited (93.00%)**, **0** 5xx / server errors, **0** auth failures, all thresholds passed |
