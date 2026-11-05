@@ -866,7 +866,7 @@ of the remediation is still open. No finding remains Partial.
 | **M-10** | Root container with a compiler, no `.dockerignore` | **Fixed** | `Dockerfile` is a four-stage build with a production-deps stage, no compiler/curl in the runner, `USER node`, and a node-based healthcheck; `.dockerignore` added; compose healthcheck updated. **Built and run** on the arm64 HAOS host: `docker build -t keygate:audit` succeeded (322 MB), and the container runs healthy as uid 1000 with `/healthz` reporting `database: "ok"`. The arm64 build needed `python3 make g++` in `backend-builder` because `better-sqlite3` has no musl/arm64 prebuild. |
 | **M-11** | HA dead pruning, stale caps, `Bearer None` | **Fixed** | `sensor.py`, `binary_sensor.py`, `button.py` now import `hub_device`/`sub_device`/`async_prune_stale_entities`, track live entity objects, prune deleted items, and include the static `refresh` button in the wanted set. `_pool_metrics` reads caps/strategy/endpoint/timeout from every poll. `api.py:async_get_metrics` raises when no admin token is configured. **Live HA test passed** on HA 2026.10.4 / Python 3.14: a real config flow against the running gateway created an entry that reached `loaded` with **28 entities** and **28 services**, and the error log had no component errors. The live test also found and fixed a `via_device` deprecation (removed in HA 2027.8): `entity.py` now resolves the hub's `via_device_id` through the device registry, and `__init__.py` registers the hub device before the platforms load. |
 | **M-12** | Master key cannot be rotated | **Fixed** | `key_version` column + migration, `KEYGATE_MASTER_KEY_PREVIOUS` fallback in `crypto.ts`, and idempotent `backend/src/reencrypt.ts` (`npm run reencrypt` / `reencrypt:prod`). The script verifies each row with the current key (not just `key_version`), so a second rotation still re-encrypts old rows. Rotation procedure documented in README and covered by `tests/crypto-rotation.test.ts`. |
-| **L-1** | Case-sensitive `Bearer` scheme | **Fixed** | `readBearerToken` uses `/^Bearer[ \t]+(.+)$/i` (`auth.ts`). |
+| **L-1** | Case-sensitive `Bearer` scheme | **Fixed** | `readBearerToken` in `auth.ts` parses the scheme case-insensitively without a backtracking regex (see §10.3 alert #1). |
 | **L-2** | `/healthz` leaks DB error details | **Fixed** | `routes/health.ts` logs the error and returns `database: "error"`; details never reach the probe. |
 | **L-3** | Two error shapes on `/v1` | **Fixed** | `server.ts` `setErrorHandler` maps framework errors into the OpenAI envelope on `/v1` paths. |
 | **L-4** | Templates compiled on every request | **Fixed** | `engine/mapper.ts` has bounded module-level caches for Handlebars and JSONata (`MAX_TEMPLATE_CACHE = 100`). |
@@ -885,7 +885,7 @@ of the remediation is still open. No finding remains Partial.
 ```
 backend  npm run typecheck      -> clean (tsc --noEmit && tsc -p tsconfig.test.json)
 backend  npm run lint           -> clean (oxlint src tests, no output)
-backend  npm test               -> 16 files passed, 138 tests passed
+backend  npm test               -> 16 files passed, 141 tests passed
 backend  npm run test:coverage  -> statements 65.07% / branches 55.63% /
                                    functions 70.50% / lines 66.52% (all above the gate)
 backend  npm audit --omit=dev --audit-level=high  -> 0 vulnerabilities
@@ -1152,7 +1152,84 @@ document.querySelectorAll('[aria-modal=true]').length // 0
 
 ---
 
-## 10. Sign-off
+## 10. Post-audit: GitHub security alert triage
+
+The audit covered the source. GitHub's own scanners cover the repository state, so the three alert
+streams were triaged separately. Query used for each stream:
+
+```powershell
+gh api "repos/enis1enis2/KeyGate/dependabot/alerts?per_page=100"
+gh api "repos/enis1enis2/KeyGate/code-scanning/alerts?state=open"
+gh api "repos/enis1enis2/KeyGate/secret-scanning/alerts?state=open"
+```
+
+### 10.1 Dependabot — 29 alerts, 0 open
+
+All 29 were already `state: fixed` when triaged. They map to the H-3 remediation (overrides and
+version bumps) and arrive as Dependabot PRs that CI gates.
+
+| Package | Ecosystem / manifest | Severity | Alerts | Remediation | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `handlebars` | npm, `backend/package-lock.json` | critical ×2, medium ×1 | 1, 2, 3 | Bumped to a patched release; template input is additionally admin-only and rendered from stored specs | **Fixed** |
+| `vite` | npm, `backend/`, `frontend/` lockfiles | high ×4, medium ×10, low ×2 | 4–15 | Bumped via Dependabot PR; CI rebuilds both bundles | **Fixed** |
+| `fast-uri` | npm, `backend/package-lock.json` | medium ×4, low ×4 | 21–28 | `overrides.fast-uri` pins the patched version through Fastify's dependency tree | **Fixed** |
+| `zod` | npm, `backend/package-lock.json` | high ×1 | 20 | Dependency removed (validation uses Fastify JSON Schemas) | **Fixed** |
+| `ip-address` | npm, `backend/package-lock.json` | medium ×1 | 19 | `overrides.ip-address` pins the patched version | **Fixed** |
+| `glob` | npm, `backend/package-lock.json` | medium ×1 | 29 | `overrides.glob` pins the patched version | **Fixed** |
+| `fastify` | npm, `backend/package-lock.json` | low ×1 | 18 | Bumped to the patched minor | **Fixed** |
+| `@vitest/mocker` | npm, `backend/package-lock.json` | medium ×2 | 16, 17 | Bumped with the test toolchain | **Fixed** |
+
+Guardrails: CI runs `npm audit --omit=dev --audit-level=high` in both workspaces (currently
+**0 vulnerabilities**), and `.github/dependabot.yml` keeps npm and Actions current on a weekly
+schedule.
+
+### 10.2 Secret scanning — 0 alerts
+
+No alert is open. The repository stores no provider key: upstream credentials are encrypted with
+AES-256-GCM at rest and the only secrets in CI come from `secrets.*`. If an alert ever appears, the
+response is rotate → revoke → clean history → record, per `memory-bank/runbook.md`.
+
+### 10.3 Code scanning (CodeQL) — 11 alert records, 0 open
+
+Code scanning had never run, so the alerts endpoint returned `404 no analysis found`. `.github/workflows/codeql.yml`
+was added (push to `main`, pull requests, weekly, `build-mode: none`), which produced the first
+analysis and 7 findings. All 7 were fixed in source. Moving the two request-forgery sinks by a few
+lines made CodeQL re-report each flow as a new alert (#8–#11); source comments in the form
+`// codeql[js/request-forgery]` are **not** honoured by code scanning in this setup (verified: the
+alert moved with the sink line and stayed open), so those two flows are dismissed as accepted risk
+rather than silently suppressed.
+
+| # | Severity | Rule | Location | Cause | Remediation | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | high | `js/polynomial-redos` | `backend/src/auth.ts:29` | `/^Bearer[ \t]+(.+)$/i` backtracks over every run of spaces/tabs in the `Authorization` header, which an unauthenticated caller controls | `readBearerToken` now slices the scheme, checks the separator and trims — one pass, no regex | **Fixed** |
+| 2 | high | `js/polynomial-redos` | `backend/src/engine/quick-add.ts:62` | `/\/*$/` (trailing-slash strip) backtracks over runs of `/` in an admin-supplied base URL | `stripTrailingSlashes` walks back from the end with `charCodeAt`, used by `normalizeBase` and `scanProviderBase` | **Fixed** |
+| 3 | high | `js/polynomial-redos` | `backend/src/engine/quick-add.ts:302` | Same trailing-slash regex, second call site in the probe path | Same scanner; regression test uses `https://api.openai.com////` | **Fixed** |
+| 4 | high | `js/polynomial-redos` | `backend/src/engine/quick-add.ts:358` | `slugify` chained `[^a-z0-9]+` and `/^-+|-+$/`, quadratic on long hyphen runs in a provider name | `slugify` is a single character loop that collapses separators, trims edges and caps at 40 chars; test uses 10,000 hyphens | **Fixed** |
+| 5 | critical | `js/request-forgery` | `backend/src/engine/quick-add.ts:260` | The probe `fetch` takes an admin-supplied provider URL | `validatedProbeUrl` allows only `http`/`https`, rejects embedded credentials and `169.254.169.254` / `metadata.google.internal`; LAN targets are a supported feature, so a host allowlist is intentionally not used | **Dismissed — accepted risk** |
+| 6 | critical | `js/request-forgery` | `backend/src/routes/passthrough.ts:154` | The passthrough `fetch` uses a URL derived from the client path plus provider auth templating | The client path is constrained to the admin-configured provider base, and the final URL is re-parsed after `applyAuth` to assert protocol, origin and base-path prefix before the fetch | **Dismissed — accepted risk** |
+| 7 | high | `js/incomplete-multi-character-sanitization` | `backend/src/engine/search.ts:112` | `stripHtml` decoded entities *after* `replace(/<[^>]*>/g, '')`, so `&lt;script&gt;` could be reconstituted into a tag | Entities are decoded first and tags are removed by a linear `indexOf` scanner in one pass; regression test asserts an entity-encoded `<script>` cannot survive | **Fixed** |
+| 8–11 | critical | `js/request-forgery` | `quick-add.ts:291`, `passthrough.ts:181` | Re-reports of #5/#6 after the sink lines moved during remediation | Same controls as #5/#6; #10/#11 closed as fixed by the re-analysis, #8/#9 dismissed | **Closed (2) / dismissed (2)** |
+
+Dismissal reason on #8/#9: `won't fix`, with this comment recorded on the alert:
+
+> By design: the upstream host is the admin-configured provider base, not untrusted input. Clients
+> only choose a path inside that base; non-HTTP schemes, embedded credentials and metadata hosts are
+> rejected. An allowlist would break LAN/self-hosted use. See report.md 10.3.
+
+This is an accepted design risk, not a claim that the data flow is absent. Compensating controls:
+provider base URLs are set by authenticated admins only, the client path cannot change host,
+protocol or escape the base path, upstream keys are encrypted at rest, and every proxied call is
+recorded in the request log. If KeyGate is ever exposed to untrusted admin accounts, add a
+configurable egress allowlist (and a private-IP block behind a feature flag) before that happens.
+
+Verification: `npm run typecheck`, `npm run lint` and `npm test` (141 tests) pass in `backend/`.
+The alerts endpoint reports **0 open** as of `358b798`; `v0.1.3` was published by the auto-release
+workflow from the same commit. The workflow also runs weekly so a new query pack reports without a
+code change.
+
+---
+
+## 11. Sign-off
 
 The codebase shows a developer who understands the domain: the trust boundaries are named, the
 crypto is correct, the failover logic is thoughtful, and the docs are better than most commercial
