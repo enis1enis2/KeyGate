@@ -17,6 +17,7 @@
 </p>
 
 <p>
+  <a href="https://enis1enis2.github.io/KeyGate/">Canlı demo</a> ·
   <a href="#hızlı-başlangıç">Hızlı başlangıç</a> ·
   <a href="#özellikler">Özellikler</a> ·
   <a href="#api-referansı">API</a> ·
@@ -317,6 +318,8 @@ Tam tehdit modeli ve bildirim süreci için [`SECURITY.md`](SECURITY.md) dosyas�
 
 | Belge | İçerik |
 | :--- | :--- |
+| [Canlı demo](https://enis1enis2.github.io/KeyGate/) | Konsolun statik, işlevsiz turu (`demo/`) |
+| [`memory-bank/`](memory-bank/) | İşletim el kitabı: proje, iş akışları, araçlar, runbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Geliştirme kurulumu, kod kuralları, pull request süreci |
 | [`SECURITY.md`](SECURITY.md) | Güvenlik mimarisi, bildirim politikası, anahtar rotasyonu |
 | [`DECISIONS.md`](DECISIONS.md) | Mimari ve mühendislik kararları |

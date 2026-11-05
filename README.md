@@ -19,6 +19,7 @@
 </p>
 
 <p>
+  <a href="https://enis1enis2.github.io/KeyGate/">Live demo</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#features">Features</a> ·
   <a href="#api-reference">API</a> ·
@@ -313,6 +314,8 @@ For the full threat model and reporting process, see [`SECURITY.md`](SECURITY.md
 
 | Document | Contents |
 | :--- | :--- |
+| [Live demo](https://enis1enis2.github.io/KeyGate/) | Static, non-functional tour of the console (`demo/`) |
+| [`memory-bank/`](memory-bank/) | Operating manual: project, workflows, tools, runbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Development setup, code conventions, pull-request process |
 | [`SECURITY.md`](SECURITY.md) | Security architecture, disclosure policy, key rotation |
 | [`DECISIONS.md`](DECISIONS.md) | Architecture and engineering decisions |
