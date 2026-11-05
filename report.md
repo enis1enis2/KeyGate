@@ -1223,7 +1223,7 @@ recorded in the request log. If KeyGate is ever exposed to untrusted admin accou
 configurable egress allowlist (and a private-IP block behind a feature flag) before that happens.
 
 Verification: `npm run typecheck`, `npm run lint` and `npm test` (141 tests) pass in `backend/`.
-The alerts endpoint reports **0 open** as of `358b798`; `v0.1.3` was published by the auto-release
+The alerts endpoint reports **0 open** as of `358b798`; `v0.1.4` was published by the auto-release
 workflow from the same commit. The workflow also runs weekly so a new query pack reports without a
 code change.
 
