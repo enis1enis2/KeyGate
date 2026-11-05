@@ -30,10 +30,15 @@ xerj --insecure --data-dir "$env:USERPROFILE\xerj-data"
 xerj autoindex "C:\Users\Enis Polat\keygate" --prefix keygate `
   --state-dir "$env:LOCALAPPDATA\xerj-state\keygate"
 
-# Large repositories: cap file size and skip the graph to stay under limits
-xerj autoindex "$env:USERPROFILE\keygate-refs\litellm" --prefix litellm1 `
-  --state-dir "$env:LOCALAPPDATA\xerj-state\litellm1" --max-file-mb 4 --no-graph
+# Large repositories: cap file size, lower bulk/worker counts to fit the node memory breaker
+xerj autoindex "$env:USERPROFILE\keygate-refs\litellm" --prefix litellm `
+  --state-dir "$env:LOCALAPPDATA\xerj-state\litellm.generation-v1" `
+  --max-file-mb 4 --bulk-mb 1 --workers 2 --no-graph
 ```
+
+Note: `litellm` indexing did **not** complete on this host — the node's real-memory
+breaker (3.9 GB watermark on a 7.7 GB machine) rejected bulk writes. `keygate`,
+`oneapi` and `portkey` are fully indexed; treat litellm as best-effort.
 
 Exit code 3 means "indexed, some junk skipped" — success, not failure.
 
@@ -47,7 +52,7 @@ xerj autoindex map --url http://localhost:9200     # what is indexed
 ```
 
 Indexes in use: `keygate` (this repo), `oneapi` (songquanpeng/one-api),
-`portkey` (Portkey-AI/gateway), `litellm1` (BerriAI/litellm).
+`portkey` (Portkey-AI/gateway), plus a partial `litellm` (BerriAI/litellm).
 
 **Field report** (optional, after a session):
 
@@ -63,6 +68,7 @@ Common failures:
 | :--- | :--- |
 | `document is at least 8388611 bytes` | re-run with `--max-file-mb 4` |
 | `legacy nonempty plan cannot become generation authority` | use a new `--prefix` and `--state-dir` |
+| `real memory circuit breaker tripped` | node RSS hit its watermark; restart the node, then retry with `--bulk-mb 1 --workers 2` (or index on a host with more RAM) |
 | search returns nothing | check the node is up on `:9200` and the prefix is indexed (`autoindex map`) |
 
 ## GitHub CLI (`gh`)

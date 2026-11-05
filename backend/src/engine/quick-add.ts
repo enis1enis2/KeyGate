@@ -288,8 +288,7 @@ async function fetchWithTimeout(url: string, apiKey: string | undefined, method:
     // The target is an admin-supplied provider base URL being probed by the Quick-Add
     // scanner, not data from an untrusted caller; validatedProbeUrl restricts the scheme,
     // credentials and metadata hosts above.
-    // codeql[js/request-forgery]
-    return await fetch(target, {
+    return await fetch(target, { // codeql[js/request-forgery]
       method,
       headers: {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),

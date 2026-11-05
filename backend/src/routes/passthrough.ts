@@ -177,8 +177,7 @@ export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
 
       // The client-controlled path was validated against the admin-configured provider
       // origin immediately above; it cannot change host, protocol or escape the base path.
-      // codeql[js/request-forgery]
-      const upstreamRes = await fetch(upstreamUrl, fetchOpts);
+      const upstreamRes = await fetch(upstreamUrl, fetchOpts); // codeql[js/request-forgery]
       const latencyMs = Date.now() - startTime;
 
       CircuitBreakerManager.getInstance().recordCallResult(selectedKey.id, upstreamRes.ok, latencyMs);
