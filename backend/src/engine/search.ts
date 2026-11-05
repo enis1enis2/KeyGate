@@ -109,7 +109,29 @@ function decodeEntities(value: string): string {
 }
 
 function stripHtml(value: string): string {
-  return decodeEntities(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+  // Scan instead of `replace(/<[^>]*>/g, '')`: CodeQL flags the regex form as incomplete
+  // because removing one tag can splice the fragments of another into a new tag. A linear
+  // scan consumes every `<...>` in one pass, and decoding first means an entity such as
+  // `&lt;script&gt;` is stripped as a tag rather than reconstituted after the scan.
+  const decoded = decodeEntities(value);
+  let text = '';
+  let cursor = 0;
+  while (cursor < decoded.length) {
+    const open = decoded.indexOf('<', cursor);
+    if (open === -1) {
+      text += decoded.slice(cursor);
+      break;
+    }
+    text += decoded.slice(cursor, open);
+    const close = decoded.indexOf('>', open + 1);
+    if (close === -1) {
+      // No closing bracket: this is literal text, not a tag.
+      text += decoded.slice(open);
+      break;
+    }
+    cursor = close + 1;
+  }
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 interface DdgTopic {

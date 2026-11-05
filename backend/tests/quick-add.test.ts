@@ -125,6 +125,28 @@ describe('quick-add spec builder', () => {
     const local = PROVIDER_PRESETS.filter((p) => p.group === 'local');
     expect(local.some((p) => p.id === 'ollama')).toBe(true);
   });
+
+  it('strips any run of trailing slashes from a base URL', () => {
+    const built = buildProviderSpec({
+      name: 'Trailing Slashes',
+      presetId: 'openai',
+      base_url: 'https://api.openai.com////',
+      model: 'gpt-4o-mini',
+    });
+
+    expect(built.base_url).toBe('https://api.openai.com/v1');
+  });
+
+  it('slugifies long runs of punctuation in one pass', () => {
+    const built = buildProviderSpec({
+      name: `${'-'.repeat(10_000)}---My   Provider---`,
+      presetId: 'openai',
+      base_url: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+    });
+
+    expect(built.spec.id).toMatch(/^my-provider-[a-z0-9]{6}$/);
+  });
 });
 
 describe('anthropic JSONata mapping roundtrip', () => {

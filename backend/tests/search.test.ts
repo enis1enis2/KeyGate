@@ -90,6 +90,23 @@ describe('webSearch', () => {
     expect(res[0]?.snippet).toBe('Node runtime');
   });
 
+  it('strips tags that only appear after HTML entities are decoded', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('duckduckgo')) return ddgResp([]);
+      if (String(url).includes('wikipedia')) {
+        return wikiResp([
+          { title: 'Injection', snippet: 'A &amp; B &lt;script&gt;alert(1)&lt;/script&gt;' },
+        ]);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await webSearch('entity tag', { provider: 'wikipedia', maxResults: 1 });
+    expect(res[0]?.snippet).toBe('A & B alert(1)');
+    expect(res[0]?.snippet).not.toContain('<');
+  });
+
   it('caches repeated identical queries', async () => {
     const fetchMock = vi.fn(async () =>
       ddgResp([{ Text: 'A - first', FirstURL: 'https://a.example' }])

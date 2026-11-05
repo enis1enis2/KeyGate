@@ -26,9 +26,15 @@ function readBearerToken(request: FastifyRequest): string | null {
   const header = request.headers.authorization;
   if (!header) return null;
   // RFC 9110: auth schemes are case-insensitive, so `bearer x` and `BEARER x` are valid.
-  const match = /^Bearer[ \t]+(.+)$/i.exec(header.trim());
-  if (!match?.[1]) return null;
-  const token = match[1].trim();
+  // Parsed by hand instead of with `^Bearer[ \t]+(.+)$`: that regex makes the engine
+  // backtrack over every run of spaces/tabs, which is quadratic on a hostile header.
+  const trimmed = header.trim();
+  const scheme = 'bearer';
+  if (trimmed.length <= scheme.length) return null;
+  if (trimmed.slice(0, scheme.length).toLowerCase() !== scheme) return null;
+  const separator = trimmed.charAt(scheme.length);
+  if (separator !== ' ' && separator !== '\t') return null;
+  const token = trimmed.slice(scheme.length + 1).trim();
   return token.length > 0 ? token : null;
 }
 

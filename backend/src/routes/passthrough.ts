@@ -138,6 +138,30 @@ export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
     // Apply upstream auth
     const authed = TemplateMapper.applyAuth(spec, decryptedKey, targetUrl, forwardHeaders, request.body);
 
+    // `applyAuth` can append a query parameter, so re-validate the final URL rather than
+    // trusting the earlier check. The client only chooses a path inside the admin-configured
+    // provider base; origin, protocol and the base path prefix must all still match.
+    let upstreamUrl: URL;
+    try {
+      upstreamUrl = new URL(authed.url);
+      const baseUrl = new URL(spec.base_url.endsWith('/') ? spec.base_url : `${spec.base_url}/`);
+      if (upstreamUrl.protocol !== 'http:' && upstreamUrl.protocol !== 'https:') {
+        throw new Error('unsupported provider protocol');
+      }
+      if (upstreamUrl.origin !== baseUrl.origin || !upstreamUrl.pathname.startsWith(baseUrl.pathname)) {
+        throw new Error('target escaped the provider base URL');
+      }
+    } catch (err) {
+      return reply.status(400).send({
+        error: {
+          message: `Invalid passthrough target: ${errorMessage(err)}`,
+          type: 'invalid_request_error',
+          param: null,
+          code: 'invalid_path',
+        },
+      });
+    }
+
     const startTime = Date.now();
     const traceId = crypto.randomUUID();
     let clientCommitted = false;
@@ -151,7 +175,10 @@ export const passthroughRoutes: FastifyPluginAsync = async (fastify) => {
         fetchOpts.body = typeof authed.bodyObj === 'string' ? authed.bodyObj : JSON.stringify(authed.bodyObj);
       }
 
-      const upstreamRes = await fetch(authed.url, fetchOpts);
+      // The client-controlled path was validated against the admin-configured provider
+      // origin immediately above; it cannot change host, protocol or escape the base path.
+      // codeql[js/request-forgery]
+      const upstreamRes = await fetch(upstreamUrl, fetchOpts);
       const latencyMs = Date.now() - startTime;
 
       CircuitBreakerManager.getInstance().recordCallResult(selectedKey.id, upstreamRes.ok, latencyMs);

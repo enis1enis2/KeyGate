@@ -58,9 +58,17 @@ export function getPreset(id: string): PresetDef | undefined {
   return PROVIDER_PRESETS.find((p) => p.id === id);
 }
 
+// Strips every trailing slash without a regex. `/\/+$/` backtracks over each run of slashes,
+// which CodeQL reports as a polynomial ReDoS on admin-controlled input.
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return value.slice(0, end);
+}
+
 function normalizeBase(baseUrl: string, preset: PresetDef, preserveRoot: boolean): string {
-  let base = baseUrl.trim().replace(/\/+$/, '');
-  if (!base) base = preset.defaultBase.replace(/\/+$/, '');
+  let base = stripTrailingSlashes(baseUrl.trim());
+  if (!base) base = stripTrailingSlashes(preset.defaultBase);
   if (preset.appendV1 && !preserveRoot && !/\/v\d+(\.\d+)?(\/openai)?$/i.test(base)) {
     base = `${base}/v1`;
   }
@@ -253,11 +261,35 @@ function parseModels(body: unknown): string[] | null {
   return null;
 }
 
+// The scanner probes an admin-supplied provider endpoint, so a host allowlist cannot apply
+// (localhost and LAN servers are a supported target). It still refuses non-HTTP schemes,
+// embedded credentials and the well-known cloud metadata endpoints.
+const BLOCKED_PROBE_HOSTS = new Set(['169.254.169.254', 'metadata.google.internal']);
+
+function validatedProbeUrl(raw: string): URL {
+  const url = new URL(raw);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`unsupported protocol: ${url.protocol}`);
+  }
+  if (url.username || url.password) {
+    throw new Error('credentials in the URL are not supported');
+  }
+  if (BLOCKED_PROBE_HOSTS.has(url.hostname.toLowerCase())) {
+    throw new Error('cloud metadata endpoints are not supported');
+  }
+  return url;
+}
+
 async function fetchWithTimeout(url: string, apiKey: string | undefined, method: 'GET' | 'POST' = 'GET'): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SCAN_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    const target = validatedProbeUrl(url);
+    // The target is an admin-supplied provider base URL being probed by the Quick-Add
+    // scanner, not data from an untrusted caller; validatedProbeUrl restricts the scheme,
+    // credentials and metadata hosts above.
+    // codeql[js/request-forgery]
+    return await fetch(target, {
       method,
       headers: {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
@@ -299,7 +331,7 @@ export async function scanProviderBase(
   input: { presetId: string; base_url: string; api_key?: string }
 ): Promise<ScanResult> {
   const preset = getPreset(input.presetId) || getPreset('openai')!;
-  const rawBase = (input.base_url || preset.defaultBase).trim().replace(/\/+$/, '');
+  const rawBase = stripTrailingSlashes((input.base_url || preset.defaultBase).trim());
   const warnings: string[] = [];
 
   const hasV1 = /\/v\d+(\.\d+)?(\/openai)?$/i.test(rawBase);
@@ -355,11 +387,24 @@ export async function scanProviderBase(
 
 // ---------------- Helpers ----------------
 function slugify(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
+  // Built character by character rather than with chained regexes: `/^-+|-+$/` is a
+  // polynomial ReDoS on names made of many hyphens, and this form also collapses runs,
+  // trims edges and caps the length in one pass.
+  const lower = value.toLowerCase();
+  let slug = '';
+  let separator = false;
+  for (const ch of lower) {
+    const code = ch.charCodeAt(0);
+    const alphanumeric = (code >= 97 && code <= 122) || (code >= 48 && code <= 57);
+    if (alphanumeric) {
+      if (separator && slug) slug += '-';
+      slug += ch;
+      separator = false;
+      if (slug.length >= 40) break;
+    } else {
+      separator = true;
+    }
+  }
   return slug || 'provider';
 }
 
