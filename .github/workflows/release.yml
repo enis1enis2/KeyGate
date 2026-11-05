@@ -1,0 +1,100 @@
+name: Release
+
+# Creates a GitHub Release after CI succeeds on main. workflow_run (rather than
+# a release job inside ci.yml) keeps the release permission out of the pull
+# request path: pull requests from forks never reach a write token here.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and publish
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Work out the next version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # If the commit CI just validated is already published, do nothing.
+          # This happens when a run is re-executed from the Actions UI.
+          latest_target=$(gh release view \
+            --repo "$REPO" \
+            --json tagName,targetCommitish \
+            --jq '.targetCommitish' 2>/dev/null || true)
+          latest_tag=$(gh release view --repo "$REPO" --json tagName --jq '.tagName' 2>/dev/null || true)
+
+          if [ -n "$latest_tag" ]; then
+            tagged_sha=$(git rev-list -n 1 "$latest_tag")
+            if [ "$tagged_sha" = "$HEAD_SHA" ]; then
+              echo "already released as $latest_tag; skipping"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          latest=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            version="${latest#v}"
+            major="${version%%.*}"
+            rest="${version#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+            patch="${patch%%[!0-9]*}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          # Guard against a tag that exists without a release (for example a
+          # hand-pushed tag): bump until the name is free.
+          while git rev-parse -q --verify "refs/tags/$next" >/dev/null; do
+            patch=$(( ${next##*.} + 1 ))
+            next="${next%.*}.$patch"
+          done
+
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "releasing $next (previous: ${latest:-none}, latest target: ${latest_target:-none})"
+
+      - name: Create release
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --target "$HEAD_SHA" \
+            --title "KeyGate $TAG" \
+            --generate-notes
