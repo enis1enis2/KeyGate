@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Navbar } from './components/Navbar';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Sidebar } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
 import { AdminLogin } from './components/AdminLogin';
 import { DashboardTab } from './components/DashboardTab';
 import { ProvidersTab } from './components/ProvidersTab';
@@ -21,7 +22,6 @@ import {
   subscribeToUnauthorized,
   UnauthorizedError 
 } from './api';
-import { isDemoMode } from './demo/mode';
 import type { 
   DashboardStats, 
   Provider, 
@@ -31,7 +31,7 @@ import type {
 } from './types';
 
 const POLL_INTERVAL_MS = 15_000;
-const demoMode = isDemoMode();
+const DESKTOP_QUERY = '(min-width: 1024px)';
 
 // DECISION: A backgrounded console tab used to poll five endpoints every 5 seconds forever.
 // The refresh loop now runs only while the tab is visible, at a calmer cadence, aborts the
@@ -56,6 +56,24 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isStale, setIsStale] = useState(false);
+
+  // The sidebar is fixed on desktop and an off-canvas drawer below `lg`. Tracking the
+  // breakpoint lets the shell inert the content only while the drawer is actually modal.
+  const [navOpen, setNavOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia(DESKTOP_QUERY).matches
+  );
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const wasNavOpen = useRef(false);
+
+  const closeNav = useCallback(() => setNavOpen(false), []);
+  const handleNavigate = useCallback((tab: string) => {
+    setActiveTab(tab);
+    setNavOpen(false);
+  }, []);
 
   const runLoad = useCallback(async (signal?: AbortSignal) => {
     if (!getAdminToken()) return;
@@ -161,138 +179,122 @@ export function App() {
     };
   }, [runLoad]);
 
+  // Resizing to desktop retires the drawer (and its focus trap) instead of leaving an
+  // invisible modal state behind.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia(DESKTOP_QUERY);
+    const onChange = () => {
+      setIsDesktop(query.matches);
+      if (query.matches) setNavOpen(false);
+    };
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+
+  // Closing the drawer hands focus back to the menu button that opened it. The first
+  // render must not steal focus from the page.
+  useEffect(() => {
+    if (wasNavOpen.current && !navOpen) menuButtonRef.current?.focus();
+    wasNavOpen.current = navOpen;
+  }, [navOpen]);
+
   if (needsAuth) {
     return <AdminLogin error={authError} onAuthenticated={handleAuthenticated} />;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-2 focus:rounded-lg focus:bg-indigo-600 focus:text-white focus:text-sm"
-      >
-        Skip to content
-      </a>
+  const drawerOpen = navOpen && !isDesktop;
+  const railHidden = !isDesktop && !navOpen;
 
-      <Navbar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        stats={stats} 
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
+      <Sidebar
+        activeTab={activeTab}
+        onNavigate={handleNavigate}
+        onClose={closeNav}
+        open={navOpen}
+        inert={railHidden}
+        stats={stats}
       />
 
-      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 outline-none">
-        {isLoading && !stats ? (
-          <div className="flex items-center justify-center py-20 text-slate-400 font-mono text-sm">
-            <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mr-3"></div>
-            Connecting to KeyGate backend...
-          </div>
-        ) : (
-          <>
-            {activeTab === 'dashboard' && (
-              <DashboardTab 
-                stats={stats} 
-                keys={keys} 
-                aliases={aliases}
-                onRefresh={loadData} 
-              />
-            )}
+      <div className="flex min-h-screen flex-col lg:pl-64" inert={drawerOpen || undefined}>
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[60] focus:px-3 focus:py-2 focus:rounded-lg focus:bg-indigo-600 focus:text-white focus:text-sm"
+        >
+          Skip to content
+        </a>
 
-            {activeTab === 'providers' && (
-              <ProvidersTab 
-                providers={providers} 
-                onRefresh={loadData} 
-              />
-            )}
+        <TopBar
+          activeTab={activeTab}
+          navOpen={navOpen}
+          menuButtonRef={menuButtonRef}
+          onOpenNav={() => setNavOpen(true)}
+          onRefresh={loadData}
+          stats={stats}
+          lastUpdated={lastUpdated}
+          isStale={isStale}
+        />
 
-            {activeTab === 'keys' && (
-              <KeysTab 
-                keys={keys} 
-                providers={providers} 
-                onRefresh={loadData} 
-              />
-            )}
-
-            {activeTab === 'routing' && (
-              <RoutingTab 
-                aliases={aliases} 
-                providers={providers} 
-                stats={stats}
-                onRefresh={loadData} 
-              />
-            )}
-
-            {activeTab === 'pricing' && (
-              <PricingTab 
-                providers={providers} 
-                onRefresh={loadData} 
-              />
-            )}
-
-            {activeTab === 'gateway' && (
-              <GatewayKeysTab 
-                gatewayKeys={gatewayKeys} 
-                aliases={aliases}
-                onRefresh={loadData} 
-              />
-            )}
-
-            {activeTab === 'playground' && (
-              <PlaygroundTab 
-                aliases={aliases} 
-              />
-            )}
-
-            {activeTab === 'history' && (
-              <HistoryTab 
-                poolNames={aliases.map((a) => a.alias_name)} 
-              />
-            )}
-
-            {activeTab === 'logs' && (
-              <LogsTab 
-                providers={providers} 
-              />
-            )}
-          </>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-400">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-300">KeyGate Gateway</span>
-            <span>•</span>
-            <span>{demoMode ? 'Interactive demo · mock data' : 'Self-Hosted AI API Pool'}</span>
-          </div>
-
-          <div className="flex items-center gap-4 font-mono">
-            <span aria-live="polite" className="text-slate-400">
-              {isStale ? (
-                <span className="text-amber-400">Reconnecting…</span>
-              ) : lastUpdated ? (
-                `Updated ${lastUpdated.toLocaleTimeString()}`
-              ) : null}
-            </span>
-            {demoMode ? (
-              <a
-                href="https://github.com/enis1enis2/KeyGate"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-indigo-400 transition-colors"
-              >
-                source
-              </a>
+        <main id="main-content" tabIndex={-1} className="w-full flex-1 scroll-mt-16 outline-none">
+          <div className="mx-auto w-full max-w-[90rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {isLoading && !stats ? (
+              <div className="flex items-center justify-center py-20 text-slate-400 font-mono text-sm">
+                <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mr-3"></div>
+                Connecting to KeyGate backend...
+              </div>
             ) : (
               <>
-                <a href="/healthz" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/healthz</a>
-                <a href="/metrics" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/metrics</a>
-                <a href="/v1/models" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/v1/models</a>
+                {activeTab === 'dashboard' && (
+                  <DashboardTab
+                    stats={stats}
+                    keys={keys}
+                    aliases={aliases}
+                    onRefresh={loadData}
+                  />
+                )}
+
+                {activeTab === 'providers' && (
+                  <ProvidersTab providers={providers} onRefresh={loadData} />
+                )}
+
+                {activeTab === 'keys' && (
+                  <KeysTab keys={keys} providers={providers} onRefresh={loadData} />
+                )}
+
+                {activeTab === 'routing' && (
+                  <RoutingTab
+                    aliases={aliases}
+                    providers={providers}
+                    stats={stats}
+                    onRefresh={loadData}
+                  />
+                )}
+
+                {activeTab === 'pricing' && (
+                  <PricingTab providers={providers} onRefresh={loadData} />
+                )}
+
+                {activeTab === 'gateway' && (
+                  <GatewayKeysTab
+                    gatewayKeys={gatewayKeys}
+                    aliases={aliases}
+                    onRefresh={loadData}
+                  />
+                )}
+
+                {activeTab === 'playground' && <PlaygroundTab aliases={aliases} />}
+
+                {activeTab === 'history' && (
+                  <HistoryTab poolNames={aliases.map((a) => a.alias_name)} />
+                )}
+
+                {activeTab === 'logs' && <LogsTab providers={providers} />}
               </>
             )}
           </div>
-        </div>
-      </footer>
+        </main>
+      </div>
     </div>
   );
 }

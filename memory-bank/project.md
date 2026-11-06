@@ -62,6 +62,9 @@ memory-bank/        This operational knowledge base
 ## Runtime shape
 
 - The backend serves the built React console from `backend/public` on `:3000`.
+- The console shell is a fixed 256 px left sidebar (grouped Overview / Configure / Access /
+  Observe) with a slim sticky top bar. Below 1024 px the sidebar becomes a modal drawer with a
+  focus trap and Escape/scrim close. Production and the Pages demo use the same shell.
 - `/v1/*` is the data plane, authenticated with `kg-live-…` gateway keys.
 - `/api/*` and `/metrics` are the control plane, authenticated with
   `KEYGATE_ADMIN_TOKEN`.

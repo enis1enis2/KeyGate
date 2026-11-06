@@ -36,6 +36,25 @@
   }
 }
 
+/* The rail scrolls independently of the page; a thin scrollbar keeps it quiet. */
+@utility console-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(51 65 85 / 0.9) transparent;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgb(51 65 85 / 0.9);
+    border-radius: 9999px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -49,7 +49,7 @@ ajanınızı ağ geçidinin temel URL'sine yönlendirin; hiçbir değişiklik ya
 | **Ölçümleme ve bütçeler** | Milyon token başına fiyatlandırma kullanımı maliyete çevirir. Günlük üst sınırlar havuz ve ağ geçidi anahtarı bazında uygulanır; bütçesi dolan anahtarlar üst kaynağa istek gitmeden yönlendirmeden çıkarılır. |
 | **Bildirimsel sağlayıcılar** | Sağlayıcılar kod değil YAML/JSON verisidir: uç noktalar, kimlik doğrulama başlıkları, JSONata/Handlebars eşlemeleri, akış parçası dönüşümü ve hata sınıflandırması. |
 | **Disk üzerinde şifreleme** | Üst kaynak anahtarları ortam değişkeninden gelen ana anahtarla AES-256-GCM ile şifrelenir. Ham anahtarlar hiçbir zaman günlüğe yazılmaz ve tam olarak döndürülmez. |
-| **Yönetim konsolu** | Sağlayıcılar, havuzlar, anahtarlar, fiyatlandırma, istek izleri ve canlı sağlık durumu için React arayüzü. cURL'den tanım üreten sihirbaz ve eşlenmiş istek/yanıtı gösteren test çalıştırıcısı içerir. |
+| **Yönetim konsolu** | Sabit sol ray (Genel Bakış / Yapılandırma / Erişim / İzleme) üzerinden sağlayıcılar, havuzlar, anahtarlar, fiyatlandırma, istek izleri ve canlı sağlık durumu için React arayüzü. cURL'den tanım üreten sihirbaz ve eşlenmiş istek/yanıtı gösteren test çalıştırıcısı içerir. |
 | **Gözlemlenebilirlik** | `/metrics` üzerinde Prometheus metrikleri, maliyetli ve filtrelenebilir istek izleri, hat boyunca taşınan trace kimlikleri ve hassas bilgi sızdırmayan `/healthz` yoklaması. |
 | **Varsayılan olarak sıkılaştırılmış** | Yönetim ve veri düzlemi kimlik doğrulaması, sıkı CSP ve güvenlik başlıkları, hız sınırlama, yükleme limitleri, dizin aşımına kapalı passthrough ve kapsamlı model yönlendirmesi. |
 
@@ -282,7 +282,8 @@ npx serve dist -l 4173                               # http://127.0.0.1:4173/
 `VITE_DEMO=1` (veya URL'ye `?demo` eklemek) `/api` ve `/v1` isteklerini tohumlanmış bellekten
 yanıtlayan bir `fetch` araya giricisi kurar. Arka uca bağlanılmaz, tüm değerler kurgusaldır ve
 sayfa yenilendiğinde durum sıfırlanır. Normal `npm run build` değişmez ve `backend/public` içine
-yazar.
+yazar. Üretim ve demo aynı kabuğu kullanır: masaüstünde 256 px sabit kenar çubuğu, 1024 px altında
+kalıcı (modal) çekmece.
 
 ### Uçtan uca ve yük testleri
 

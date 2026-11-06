@@ -51,7 +51,7 @@ custom agent at the gateway's base URL and it works unchanged.
 | **Metering and budgets** | Per-million-token pricing turns usage into cost. Daily caps apply per pool and per gateway key, and over-budget keys are dropped from routing before an upstream call is made. |
 | **Declarative providers** | Providers are YAML/JSON data — endpoints, auth headers, JSONata/Handlebars mappings, streaming chunk translation and error classification — not bespoke code. |
 | **Secrets at rest** | Upstream keys are encrypted with AES-256-GCM under a master key from the environment. Raw keys are never logged or returned in full. |
-| **Management console** | A React UI for providers, pools, keys, pricing, request traces and live health. Includes a cURL-to-spec wizard and a test runner that shows the mapped request and response. |
+| **Management console** | A React UI with a fixed left rail (Overview / Configure / Access / Observe) for providers, pools, keys, pricing, request traces and live health. Includes a cURL-to-spec wizard and a test runner that shows the mapped request and response. |
 | **Observability** | Prometheus metrics at `/metrics`, filterable request traces with cost, trace IDs propagated through the pipeline, and a redacted `/healthz` probe. |
 | **Hardened by default** | Admin/data-plane authentication, strict CSP and security headers, rate limiting, upload limits, traversal-safe passthrough and scoped model routing. |
 
@@ -279,6 +279,8 @@ npx serve dist -l 4173                               # http://127.0.0.1:4173/
 `VITE_DEMO=1` (or adding `?demo` to the URL) installs a `fetch` interceptor that answers `/api`
 and `/v1` from seeded memory. No backend is contacted, every value is fictional, and a reload
 resets the state. The normal `npm run build` is unchanged and still writes `backend/public`.
+Production and the demo share the same shell: a fixed 256 px sidebar on desktop and a modal
+drawer below 1024 px.
 
 ### End-to-end and load testing
 
