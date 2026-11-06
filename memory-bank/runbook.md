@@ -57,11 +57,24 @@ Treat as an incident, not a chore.
 1. `gh run view <run-id> --log-failed` on the Pages workflow.
 2. `gh api repos/enis1enis2/KeyGate/pages` — `build_type` must be `workflow`.
 3. If the site is not configured: `gh api -X POST repos/enis1enis2/KeyGate/pages -f build_type=workflow`.
-4. If the artifact upload failed, check that `demo/index.html` exists and the
-   workflow still points at `path: demo`.
+4. If the artifact upload failed, confirm `frontend/dist/index.html` exists and
+   the workflow still points at `path: frontend/dist`. A demo build must also
+   set `VITE_BASE=/KeyGate/`, otherwise the hashed assets resolve from `/assets`
+   and the page renders blank.
 5. For an environment-protection rejection, approve the `github-pages`
    deployment in Actions, then re-run.
 6. Re-deploy without a code change: Actions → Pages → *Run workflow*.
+
+## Demo is blank, stale, or calls `/api`
+
+1. Blank page: check `frontend/dist/index.html` asset URLs start with
+   `/KeyGate/` (missing `VITE_BASE` is the usual cause).
+2. Stale data: the demo is intentionally reset on reload; a hard reload
+   (Ctrl+F5) discards any keys or pricing rows created in the session.
+3. Network panel shows `/api/*` or `/v1/*` requests: the mock did not install.
+   Confirm the build ran with `VITE_DEMO=1` (or open the URL with `?demo`).
+4. Console shows 404s for an old hashed bundle: Pages is serving a cached
+   `index.html`; wait for propagation or append `?v=2`.
 
 ## Demo URL returns 404
 

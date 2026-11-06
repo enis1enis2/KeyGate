@@ -105,8 +105,8 @@ single-token or read the plain JSON output.
 ```powershell
 git config user.email "128625009+enis1enis2@users.noreply.github.com"
 git status --short
-git add demo memory-bank .github/workflows
-git commit -m "feat(demo): publish static console to Pages"
+git add frontend/src/demo .github/workflows/pages.yml
+git commit -m "feat(demo): publish the real console with an in-browser mock API"
 git push origin main
 ```
 
@@ -116,12 +116,12 @@ even when the push succeeded. Confirm with `git log origin/main -1`.
 ## Node.js / npm
 
 ```powershell
-node --check demo\app.js          # syntax-check a static script
 npm ci                            # reproducible install
 npm run typecheck                 # backend
 npm run lint                      # oxlint
 npm run test:coverage             # Vitest + coverage
 npm run build                     # tsc (backend) / tsc -b + vite build (frontend)
+npm run build:demo                # frontend only: demo bundle in frontend/dist
 ```
 
 ## Docker
@@ -150,13 +150,22 @@ k6 run .\keygate.js
 
 ## Local demo preview
 
-The demo is plain static files; any static server works.
+Build the Pages variant and serve the output; the app is the real console with
+a mock API, so there is no backend to start.
 
 ```powershell
-cd demo
-npx --yes serve . -l 4173
+cd frontend
+$env:VITE_DEMO = "1"; $env:VITE_BASE = "/"
+npm run build:demo
+npx --yes serve dist -l 4173
 # http://127.0.0.1:4173/
 ```
+
+For a production-base check, rebuild with `VITE_BASE=/KeyGate/` and confirm
+`dist/index.html` references `/KeyGate/assets/...`. In the browser's network
+panel the only requests should be the document and its hashed assets — any
+`/api/*` or `/v1/*` entry means the interceptor did not install. Reloading must
+reset created keys and pricing rows.
 
 ## Reference repositories
 

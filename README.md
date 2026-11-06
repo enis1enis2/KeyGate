@@ -265,6 +265,21 @@ Tests run against a throwaway SQLite database in the OS temp directory, so your 
 never touched. Both packages gate coverage in `vitest.config.ts`, and CI runs the same checks on
 every push and pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
+### Demo build
+
+The GitHub Pages site is the real console, not a separate mock-up. A build flag swaps the HTTP
+client for a browser-only mock:
+
+```bash
+cd frontend
+VITE_DEMO=1 VITE_BASE=/KeyGate/ npm run build:demo   # writes frontend/dist
+npx serve dist -l 4173                               # http://127.0.0.1:4173/
+```
+
+`VITE_DEMO=1` (or adding `?demo` to the URL) installs a `fetch` interceptor that answers `/api`
+and `/v1` from seeded memory. No backend is contacted, every value is fictional, and a reload
+resets the state. The normal `npm run build` is unchanged and still writes `backend/public`.
+
 ### End-to-end and load testing
 
 Both suites need a **disposable running instance** — they create data and generate real traffic.
@@ -314,7 +329,7 @@ For the full threat model and reporting process, see [`SECURITY.md`](SECURITY.md
 
 | Document | Contents |
 | :--- | :--- |
-| [Live demo](https://enis1enis2.github.io/KeyGate/) | Static, non-functional tour of the console (`demo/`) |
+| [Live demo](https://enis1enis2.github.io/KeyGate/) | Real console with an in-browser mock API (`frontend/src/demo/`) — no backend, resets on reload |
 | [`memory-bank/`](memory-bank/) | Operating manual: project, workflows, tools, runbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Development setup, code conventions, pull-request process |
 | [`SECURITY.md`](SECURITY.md) | Security architecture, disclosure policy, key rotation |

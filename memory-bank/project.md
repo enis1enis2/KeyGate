@@ -34,7 +34,7 @@ rotation is a redeploy of every client.
 | Crypto | AES-256-GCM with a key derived from `KEYGATE_MASTER_KEY` |
 | Tests | Vitest (unit/coverage), Playwright (e2e), k6 (load) |
 | Delivery | Docker multi-stage, GitHub Actions CI, GitHub Releases |
-| Demo | Static HTML/CSS/JS in `demo/`, published to GitHub Pages |
+| Demo | Real React console in demo mode (`frontend/src/demo/`), published to GitHub Pages |
 
 ## Repository structure
 
@@ -50,7 +50,8 @@ backend/            Fastify service
     reencrypt.ts    master-key rotation job
   tests/            Vitest suites
 frontend/           React admin console (builds into backend/public)
-demo/               Non-functional static demo (GitHub Pages)
+  src/demo/         Browser-only mock API + seed data for the Pages demo
+demo/               Legacy static demo (kept for reference, no longer deployed)
 providers/          Declarative provider specs (YAML)
 homeassistant/      Home Assistant custom component
 docs/               Integration guides (SDK, n8n)

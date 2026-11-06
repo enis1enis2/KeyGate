@@ -56,18 +56,25 @@ tagged is skipped, so re-runs are safe.
 
 ## Deploy — `.github/workflows/pages.yml`
 
-The static demo lives in `demo/` and is deployed to GitHub Pages.
+GitHub Pages serves the **real console in demo mode**: the React components in
+`frontend/` are built with `VITE_DEMO=1` and a `fetch` interceptor
+(`frontend/src/demo/mockApi.ts`) answers every `/api` and `/v1` request from
+seeded memory.
 
-1. Push to `main` touching `demo/**` (or run the workflow manually).
+1. Push to `main` touching `frontend/**` (or run the workflow manually).
 2. `configure-pages` reads the repository's Pages configuration
    (`build_type=workflow`, enabled once via
    `gh api -X POST repos/enis1enis2/KeyGate/pages -f build_type=workflow`).
-3. `upload-pages-artifact` packages `demo/` as-is — there is no build step.
-4. `deploy-pages` publishes it to <https://enis1enis2.github.io/KeyGate/>.
+3. `setup-node` installs from `frontend/package-lock.json`; `npm run build:demo`
+   runs with `VITE_DEMO=1` and `VITE_BASE=/KeyGate/`, writing `frontend/dist`.
+4. `upload-pages-artifact` packs `frontend/dist`; `deploy-pages` publishes it to
+   <https://enis1enis2.github.io/KeyGate/>.
 
-The demo is intentionally non-functional: no `fetch`, no storage APIs, all
-state in memory, reset on reload. It exists to show interaction design, not to
-be a second implementation.
+The deployed demo never contacts a backend: no `/api` or `/v1` request leaves the
+browser, all values are fictional, and every reload rebuilds the seed state.
+The normal `npm run build` still writes `backend/public` at base `/`, so the
+self-hosted console is unaffected. `demo/` is the old hand-written static page;
+it stays in the tree for reference but is not deployed.
 
 ## Production deploy (self-hosted)
 

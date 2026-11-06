@@ -14,7 +14,10 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/types.ts', 'src/main.tsx'],
+      // The demo router and its seed data only run in the Pages build; they are
+      // excluded so the coverage floor still measures the console's real API
+      // client and shared UI rather than ~1.5k lines of mock fixtures.
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/types.ts', 'src/main.tsx', 'src/demo/**'],
       // Ratchet: the suite currently covers the shared dialogs and the API client deeply but not
       // the tab screens, so the floor sits just below today's numbers to catch regressions
       // without pretending the UI is fully covered.

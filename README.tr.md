@@ -268,6 +268,22 @@ Testler işletim sisteminin geçici dizininde atılabilir bir SQLite veritabanı
 içinde uygular ve CI her push ile pull request'te aynı kontrolleri çalıştırır
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
+### Demo derlemesi
+
+GitHub Pages sitesi ayrı bir maket değil, gerçek konsoldur. Bir derleme bayrağı HTTP istemcisini
+yalnızca tarayıcıda çalışan sahte bir API ile değiştirir:
+
+```bash
+cd frontend
+VITE_DEMO=1 VITE_BASE=/KeyGate/ npm run build:demo   # frontend/dist içine yazar
+npx serve dist -l 4173                               # http://127.0.0.1:4173/
+```
+
+`VITE_DEMO=1` (veya URL'ye `?demo` eklemek) `/api` ve `/v1` isteklerini tohumlanmış bellekten
+yanıtlayan bir `fetch` araya giricisi kurar. Arka uca bağlanılmaz, tüm değerler kurgusaldır ve
+sayfa yenilendiğinde durum sıfırlanır. Normal `npm run build` değişmez ve `backend/public` içine
+yazar.
+
 ### Uçtan uca ve yük testleri
 
 Her iki takım da **atılabilir, çalışan bir kurulum** ister — veri oluşturur ve gerçek trafik üretir.
@@ -318,7 +334,7 @@ Tam tehdit modeli ve bildirim süreci için [`SECURITY.md`](SECURITY.md) dosyas�
 
 | Belge | İçerik |
 | :--- | :--- |
-| [Canlı demo](https://enis1enis2.github.io/KeyGate/) | Konsolun statik, işlevsiz turu (`demo/`) |
+| [Canlı demo](https://enis1enis2.github.io/KeyGate/) | Tarayıcı içi sahte API ile gerçek konsol (`frontend/src/demo/`) — arka uç yok, yenilemede sıfırlanır |
 | [`memory-bank/`](memory-bank/) | İşletim el kitabı: proje, iş akışları, araçlar, runbook |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Geliştirme kurulumu, kod kuralları, pull request süreci |
 | [`SECURITY.md`](SECURITY.md) | Güvenlik mimarisi, bildirim politikası, anahtar rotasyonu |
