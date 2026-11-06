@@ -13,6 +13,9 @@ import {
   History
 } from 'lucide-react';
 import type { DashboardStats } from '../types';
+import { isDemoMode } from '../demo/mode';
+
+const demoMode = isDemoMode();
 
 interface NavbarProps {
   activeTab: string;
@@ -36,24 +39,30 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, stats }
   return (
     <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-2 py-2.5 sm:py-0 sm:h-16">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <ShieldCheck className="w-6 h-6 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg text-white tracking-tight">KeyGate</span>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                  <Radio className="w-3 h-3 animate-pulse" /> Live
+                <span className={`px-2 py-0.5 text-xs font-semibold rounded-full border flex items-center gap-1 ${
+                  demoMode
+                    ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                }`}>
+                  <Radio className={`w-3 h-3 ${demoMode ? '' : 'animate-pulse'}`} /> {demoMode ? 'Demo' : 'Live'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Resilient Upstream Key Pool & AI Gateway</p>
+              <p className="hidden sm:block text-xs text-slate-400">
+                {demoMode ? 'Interactive demo · mock data resets on reload' : 'Resilient Upstream Key Pool & AI Gateway'}
+              </p>
             </div>
           </div>
 
           {/* Navigation Links */}
-          <nav className="flex space-x-1">
+          <nav className="order-3 flex w-full space-x-1 overflow-x-auto sm:order-none sm:w-auto min-w-0">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -61,7 +70,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, stats }
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0 ${
                     isActive
                       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'

@@ -21,6 +21,7 @@ import {
   subscribeToUnauthorized,
   UnauthorizedError 
 } from './api';
+import { isDemoMode } from './demo/mode';
 import type { 
   DashboardStats, 
   Provider, 
@@ -30,6 +31,7 @@ import type {
 } from './types';
 
 const POLL_INTERVAL_MS = 15_000;
+const demoMode = isDemoMode();
 
 // DECISION: A backgrounded console tab used to poll five endpoints every 5 seconds forever.
 // The refresh loop now runs only while the tab is visible, at a calmer cadence, aborts the
@@ -261,7 +263,7 @@ export function App() {
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-300">KeyGate Gateway</span>
             <span>•</span>
-            <span>Self-Hosted AI API Pool</span>
+            <span>{demoMode ? 'Interactive demo · mock data' : 'Self-Hosted AI API Pool'}</span>
           </div>
 
           <div className="flex items-center gap-4 font-mono">
@@ -272,9 +274,22 @@ export function App() {
                 `Updated ${lastUpdated.toLocaleTimeString()}`
               ) : null}
             </span>
-            <a href="/healthz" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/healthz</a>
-            <a href="/metrics" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/metrics</a>
-            <a href="/v1/models" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/v1/models</a>
+            {demoMode ? (
+              <a
+                href="https://github.com/enis1enis2/KeyGate"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-indigo-400 transition-colors"
+              >
+                source
+              </a>
+            ) : (
+              <>
+                <a href="/healthz" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/healthz</a>
+                <a href="/metrics" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/metrics</a>
+                <a href="/v1/models" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors">/v1/models</a>
+              </>
+            )}
           </div>
         </div>
       </footer>

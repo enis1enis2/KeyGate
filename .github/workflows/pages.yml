@@ -1,13 +1,13 @@
 name: Pages
 
-# Publishes the static demo in /demo to GitHub Pages. The demo has no build
-# step on purpose: it is plain HTML/CSS/JS so the deployed artifact is exactly
-# what a reviewer opens locally.
+# Builds the real frontend with the in-browser mock API (demo mode) and
+# publishes frontend/dist. The deployed demo never contacts a backend: every
+# request is answered from memory and a reload resets the seed data.
 on:
   push:
     branches: [main]
     paths:
-      - "demo/**"
+      - "frontend/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -33,9 +33,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Build demo
+        working-directory: frontend
+        env:
+          VITE_DEMO: "1"
+          VITE_BASE: /KeyGate/
+        run: npm run build:demo
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: demo
+          path: frontend/dist
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

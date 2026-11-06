@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages serves the demo from /KeyGate/; the normal build keeps the app
+  // at the origin root so the backend's static handler is unchanged.
+  base: process.env.VITE_BASE || '/',
   plugins: [
     react(),
     tailwindcss(),
